@@ -18,23 +18,15 @@ claude-shift/
 
 ### 1. アカウント登録
 
-各アカウントでログインした状態で：
+各アカウントごとに `/login → shift add` のペアで完了させます。
 
 ```bash
-# ~/.claude/.credentials.json の内容を "accountA" として保存
+# 1. Claude Code 内で /login を実行し、登録したいアカウントで認証
+# 2. 直後に add
 ./shift.sh add accountA
-
-# 別アカウントに切り替えてログイン後
-./shift.sh add accountB
 ```
 
-または手動で `~/.claude-shift/accounts/accountA.json` を作成：
-
-```json
-{
-  "accessToken": "sk-ant-oat01-..."
-}
-```
+**重要**: `/login` は logout 不要で `credentials.json` を上書きするため、順序を間違えると誤ラベル登録になります。詳細なガイド・事故パターン・干渉なしログイン方法は [docs/account-setup.md](docs/account-setup.md) を参照してください。
 
 ### 2. 依存インストール
 

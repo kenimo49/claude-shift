@@ -20,25 +20,53 @@ Commands:
 EOF
 }
 
+# credentials.json からアクセストークンを取り出す（フラット・ネスト両形式対応）
+_extract_token() {
+  python3 -c "
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get('claudeAiOauth', {}).get('accessToken', '') or d.get('accessToken', ''))
+except: print('')
+" "$1" 2>/dev/null || echo ""
+}
+
+# 現在アクティブなアカウント名を返す
+_active_name() {
+  [[ -f "$CREDENTIALS" ]] || return
+  local active_token
+  active_token=$(_extract_token "$CREDENTIALS")
+  [[ -z "$active_token" ]] && return
+  for f in "$ACCOUNTS_DIR"/*.json; do
+    [[ -f "$f" ]] || continue
+    local tok
+    tok=$(_extract_token "$f")
+    if [[ "$tok" == "$active_token" ]]; then
+      basename "$f" .json
+      return
+    fi
+  done
+}
+
+# 現在の credentials を アクティブアカウントファイルへ書き戻す
+_sync_back() {
+  local active
+  active=$(_active_name)
+  if [[ -n "$active" && -f "$CREDENTIALS" ]]; then
+    cp "$CREDENTIALS" "$ACCOUNTS_DIR/${active}.json"
+  fi
+}
+
 list_accounts() {
   mkdir -p "$ACCOUNTS_DIR"
-  local active_token
-  active_token=$(python3 -c "
-import json, sys
-d = json.load(open('${CREDENTIALS}'))
-print(d.get('claudeAiOauth', {}).get('accessToken', ''))
-" 2>/dev/null || echo "")
-
+  local active
+  active=$(_active_name)
   echo "Accounts:"
   for f in "$ACCOUNTS_DIR"/*.json; do
     [[ -f "$f" ]] || continue
+    local name
     name=$(basename "$f" .json)
-    token=$(python3 -c "
-import json
-d = json.load(open('$f'))
-print(d.get('accessToken') or d.get('claudeAiOauth', {}).get('accessToken', ''))
-" 2>/dev/null || echo "")
-    if [[ "$token" == "$active_token" ]]; then
+    if [[ "$name" == "$active" ]]; then
       echo "  * $name (active)"
     else
       echo "    $name"
@@ -51,6 +79,9 @@ use_account() {
   [[ -z "$name" ]] && { echo "Usage: shift use <name>"; exit 1; }
   local cred_file="$ACCOUNTS_DIR/${name}.json"
   [[ -f "$cred_file" ]] || { echo "Account '$name' not found. Run: shift list"; exit 1; }
+
+  # 現在のアカウントへリフレッシュ済みトークンを書き戻してから切り替え
+  _sync_back
 
   cp "$cred_file" "$CREDENTIALS"
   chmod 600 "$CREDENTIALS"
@@ -103,16 +134,10 @@ add_account() {
   [[ -z "$name" ]] && { echo "Usage: shift add <name>"; exit 1; }
   mkdir -p "$ACCOUNTS_DIR"
 
-  # 現在のcredentials.jsonからaccessTokenだけ抽出して保存
-  python3 -c "
-import json
-d = json.load(open('${CREDENTIALS}'))
-token = d.get('claudeAiOauth', {}).get('accessToken', '')
-refresh = d.get('claudeAiOauth', {}).get('refreshToken', '')
-out = {'accessToken': token, 'refreshToken': refresh}
-json.dump(out, open('${ACCOUNTS_DIR}/${name}.json', 'w'), indent=2)
-print('Saved as: ${ACCOUNTS_DIR}/${name}.json')
-"
+  # credentials.json をそのままコピーして保存（フォーマット保持）
+  cp "$CREDENTIALS" "$ACCOUNTS_DIR/${name}.json"
+  chmod 600 "$ACCOUNTS_DIR/${name}.json"
+  echo "Saved as: $ACCOUNTS_DIR/${name}.json"
 }
 
 start_server() {
