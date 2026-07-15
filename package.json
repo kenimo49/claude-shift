@@ -1,0 +1,13 @@
+{
+  "name": "claude-shift",
+  "version": "0.1.0",
+  "description": "Multi-account Claude Code manager",
+  "type": "module",
+  "scripts": {
+    "server": "node cli/server.js",
+    "usage": "node cli/fetch-usage.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3"
+  }
+}

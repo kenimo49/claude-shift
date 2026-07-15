@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Shift",
+  "description": "複数のClaudeアカウントの使用状況を一元管理 (claude-shift連携)",
+  "version": "0.1.0",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:19867/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Claude Shift",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}
