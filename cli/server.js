@@ -6,7 +6,22 @@ import { fetchAllUsage } from "./fetch-usage.js";
 import { saveSnapshots, getLatestSnapshots, getHistory } from "./db.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
-const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10分ごとに自動取得
+
+// ポーリング間隔（分）: CLI引数 > 環境変数 > デフォルト10分
+function parseIntervalMinutes() {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === "--interval" || args[i] === "-i") && args[i + 1]) {
+      const v = parseFloat(args[i + 1]);
+      if (v > 0) return v;
+    }
+  }
+  const env = parseFloat(process.env.CLAUDE_SHIFT_POLL_MINUTES ?? "");
+  return env > 0 ? env : 10;
+}
+
+const POLL_MINUTES = parseIntervalMinutes();
+const POLL_INTERVAL_MS = POLL_MINUTES * 60 * 1000;
 
 let cache = null;
 let lastFetched = 0;
@@ -64,6 +79,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, "127.0.0.1", async () => {
   console.log(`claude-shift server → http://127.0.0.1:${PORT}`);
+  console.log(`polling every ${POLL_MINUTES} minute(s)`);
   await refresh();
 });
 

@@ -14,7 +14,8 @@ Commands:
   use <name>        アカウントを切り替える
   usage             全アカウントの使用状況を表示
   seed <name>       5時間ウィンドウを今から起動する（軽量タスク実行）
-  server            localhost API サーバーを起動
+  server [--interval <min>]
+                    localhost API サーバーを起動 (デフォルト10分間隔)
   add <name> [-f]   アカウントを登録（credentials.json からコピー）
   rm <name> [-f]    アカウント登録を削除
 
@@ -214,7 +215,7 @@ EOF
 
 start_server() {
   cd "$(dirname "$0")"
-  node cli/server.js
+  node cli/server.js "$@"
 }
 
 cmd="${1:-}"
@@ -226,6 +227,6 @@ case "$cmd" in
   seed)    seed_account "$@" ;;
   add)     add_account "$@" ;;
   rm)      rm_account "$@" ;;
-  server)  start_server ;;
+  server)  start_server "$@" ;;
   *)       usage ;;
 esac
