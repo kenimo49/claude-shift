@@ -29,7 +29,6 @@ async function load(live = false) {
   const container = document.getElementById("accounts");
   const btn = document.getElementById("btn-refresh");
 
-  // live=false（初回）は空 → 「取得中」表示、live=true は既存カード維持でボタンだけ更新中
   if (live) {
     btn.disabled = true;
     btn.classList.add("loading");
@@ -65,7 +64,80 @@ async function load(live = false) {
   }
 }
 
+// ---- 設定モーダル ----
+
+async function openSettings() {
+  const modal = document.getElementById("modal");
+  const input = document.getElementById("poll-minutes");
+  const msg = document.getElementById("modal-msg");
+  msg.textContent = "";
+  msg.className = "modal-msg";
+
+  input.value = "";
+  input.placeholder = "取得中...";
+  modal.classList.remove("hidden");
+  input.focus();
+
+  try {
+    const res = await fetch(`${SERVER}/config`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const cfg = await res.json();
+    input.value = cfg.pollMinutes;
+    input.placeholder = "";
+  } catch (e) {
+    msg.textContent = `現在の設定を取得できません: ${e.message}`;
+    msg.className = "modal-msg error";
+  }
+}
+
+function closeSettings() {
+  document.getElementById("modal").classList.add("hidden");
+}
+
+async function saveSettings() {
+  const input = document.getElementById("poll-minutes");
+  const msg = document.getElementById("modal-msg");
+  const btn = document.getElementById("modal-save");
+
+  const v = parseFloat(input.value);
+  if (!(v > 0)) {
+    msg.textContent = "0より大きい数値を入れてください";
+    msg.className = "modal-msg error";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "保存中...";
+  msg.textContent = "";
+  msg.className = "modal-msg";
+
+  try {
+    const res = await fetch(`${SERVER}/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pollMinutes: v }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    msg.textContent = `保存しました (${data.pollMinutes} 分間隔)`;
+    msg.className = "modal-msg ok";
+    setTimeout(closeSettings, 800);
+  } catch (e) {
+    msg.textContent = `保存に失敗: ${e.message}`;
+    msg.className = "modal-msg error";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "保存";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   load();
   document.getElementById("btn-refresh").addEventListener("click", () => load(true));
+  document.getElementById("btn-settings").addEventListener("click", openSettings);
+  document.getElementById("modal-close").addEventListener("click", closeSettings);
+  document.getElementById("modal-cancel").addEventListener("click", closeSettings);
+  document.getElementById("modal-save").addEventListener("click", saveSettings);
+  document.querySelector("#modal .modal-backdrop")
+    .addEventListener("click", closeSettings);
 });

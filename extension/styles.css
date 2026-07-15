@@ -24,9 +24,32 @@ header h1 {
   color: #f9fafb;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .timestamp {
   font-size: 10px;
   color: #6b7280;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.icon-btn:hover {
+  color: #f3f4f6;
+  background: #1f2937;
 }
 
 /* ---- メインリスト ---- */
@@ -180,4 +203,97 @@ footer {
 @keyframes pulse {
   0%, 100% { opacity: 0.6; }
   50%      { opacity: 1;   }
+}
+
+/* ---- 設定モーダル ---- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.hidden { display: none; }
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modal-body {
+  position: relative;
+  background: #1a2030;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  width: 260px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1f2937;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f3f4f6;
+}
+
+.modal-content {
+  padding: 14px 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.field input {
+  background: #0f1117;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  color: #f3f4f6;
+  font-size: 13px;
+  padding: 6px 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field input:focus {
+  border-color: #3b82f6;
+}
+
+.field-hint {
+  font-size: 10px;
+  color: #6b7280;
+}
+
+.modal-msg {
+  margin-top: 10px;
+  font-size: 11px;
+  min-height: 14px;
+}
+
+.modal-msg.error { color: #f87171; }
+.modal-msg.ok    { color: #6ee7b7; }
+
+.modal-footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid #1f2937;
+  background: #141a26;
 }

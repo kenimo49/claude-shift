@@ -8,7 +8,10 @@
   <body>
     <header>
       <h1>Claude Shift</h1>
-      <span id="timestamp" class="timestamp"></span>
+      <div class="header-right">
+        <span id="timestamp" class="timestamp"></span>
+        <button id="btn-settings" class="icon-btn" title="設定">⚙</button>
+      </div>
     </header>
 
     <main id="accounts"></main>
@@ -16,6 +19,35 @@
     <footer>
       <button id="btn-refresh" class="footer-btn primary">今すぐ更新</button>
     </footer>
+
+    <!-- 設定モーダル -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-body">
+        <div class="modal-header">
+          <span>設定</span>
+          <button id="modal-close" class="icon-btn" title="閉じる">×</button>
+        </div>
+        <div class="modal-content">
+          <label class="field">
+            <span class="field-label">ポーリング間隔（分）</span>
+            <input
+              id="poll-minutes"
+              type="number"
+              min="0.1"
+              step="0.5"
+              inputmode="decimal"
+            />
+            <span class="field-hint">サーバーが usage を自動取得する間隔</span>
+          </label>
+          <div id="modal-msg" class="modal-msg"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="modal-cancel" class="footer-btn">キャンセル</button>
+          <button id="modal-save" class="footer-btn primary">保存</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="popup.js"></script>
   </body>
