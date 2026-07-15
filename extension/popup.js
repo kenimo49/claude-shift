@@ -2,23 +2,26 @@ import { formatCountdown, formatResetClock, renderBar } from "./helpers.js";
 
 const SERVER = "http://127.0.0.1:19867";
 
-function renderAccount(row) {
-  const fhReset = row.five_hour_reset_at;
-  const wkReset = row.weekly_reset_at;
+function renderLimit(title, pct, resetAt) {
+  const countdown = formatCountdown(resetAt);
+  const clock = formatResetClock(resetAt);
+  const resetText = countdown ? `${countdown}${clock ? ` (${clock})` : ""}` : "不明";
+  return `
+    <div class="limit-block">
+      <div class="limit-header">
+        <span class="limit-label">${title}</span>
+        <span class="limit-reset">${resetText}</span>
+      </div>
+      ${renderBar(pct)}
+    </div>`;
+}
 
+function renderAccount(row) {
   return `
     <div class="account-card">
       <div class="account-name">${row.account}</div>
-      <div class="limit-row">
-        <span class="limit-label">5時間枠</span>
-        ${renderBar(row.five_hour_pct)}
-        <div class="reset-time">${formatCountdown(fhReset) ?? "不明"} (${formatResetClock(fhReset) ?? "?"})</div>
-      </div>
-      <div class="limit-row">
-        <span class="limit-label">週次</span>
-        ${renderBar(row.weekly_pct)}
-        <div class="reset-time">${formatCountdown(wkReset) ?? "不明"}</div>
-      </div>
+      ${renderLimit("5時間枠", row.five_hour_pct, row.five_hour_reset_at)}
+      ${renderLimit("週次", row.weekly_pct, row.weekly_reset_at)}
     </div>`;
 }
 
