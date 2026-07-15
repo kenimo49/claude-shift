@@ -56,6 +56,7 @@ npm run server
 ./shift.sh usage           # 全アカウントの使用状況を表示
 ./shift.sh seed accountA   # accountA の5時間ウィンドウを今から起動
 ./shift.sh add accountC    # 現在のcredentialsをaccountCとして登録
+./shift.sh rm accountC     # アカウント登録を削除（activeの場合は -f 必要）
 ```
 
 ## 5時間ウィンドウ管理

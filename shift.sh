@@ -15,7 +15,8 @@ Commands:
   usage             全アカウントの使用状況を表示
   seed <name>       5時間ウィンドウを今から起動する（軽量タスク実行）
   server            localhost API サーバーを起動
-  add <name>        アカウントを登録（credentials.json からコピー）
+  add <name> [-f]   アカウントを登録（credentials.json からコピー）
+  rm <name> [-f]    アカウント登録を削除
 
 EOF
 }
@@ -131,8 +132,49 @@ print(d.get('accessToken') or d.get('claudeAiOauth', {}).get('accessToken', ''))
 
 add_account() {
   local name="${1:-}"
-  [[ -z "$name" ]] && { echo "Usage: shift add <name>"; exit 1; }
+  local force=""
+  # -f/--force フラグを受け付ける
+  for arg in "$@"; do
+    [[ "$arg" == "-f" || "$arg" == "--force" ]] && force="1"
+  done
+  [[ -z "$name" || "$name" == "-f" || "$name" == "--force" ]] && { echo "Usage: shift add <name> [-f]"; exit 1; }
   mkdir -p "$ACCOUNTS_DIR"
+
+  [[ -f "$CREDENTIALS" ]] || { echo "credentials.json が見つかりません: $CREDENTIALS"; exit 1; }
+
+  # 現在のトークンと既存アカウントを突合して誤ラベル登録を防ぐ
+  local current_token
+  current_token=$(_extract_token "$CREDENTIALS")
+  if [[ -z "$current_token" ]]; then
+    echo "credentials.json から accessToken を取得できません"
+    exit 1
+  fi
+
+  if [[ -z "$force" ]]; then
+    for f in "$ACCOUNTS_DIR"/*.json; do
+      [[ -f "$f" ]] || continue
+      local other_name
+      other_name=$(basename "$f" .json)
+      [[ "$other_name" == "$name" ]] && continue
+      local other_token
+      other_token=$(_extract_token "$f")
+      if [[ -n "$other_token" && "$other_token" == "$current_token" ]]; then
+        cat >&2 <<EOF
+⚠️  現在の credentials.json のトークンは既に別アカウント '$other_name' として登録されています。
+
+このまま '$name' として保存すると、同一トークンが2つのラベルで保存されます
+(誤ラベル登録の可能性が高い)。
+
+直前に該当アカウントで /login しましたか？
+- していない: /login を実行してから add してください
+- した: 意図的なコピーであれば -f で強行できます: shift add $name -f
+
+中止しました。
+EOF
+        exit 1
+      fi
+    done
+  fi
 
   # credentials.json をそのままコピーして保存（フォーマット保持）
   cp "$CREDENTIALS" "$ACCOUNTS_DIR/${name}.json"
@@ -140,17 +182,50 @@ add_account() {
   echo "Saved as: $ACCOUNTS_DIR/${name}.json"
 }
 
+rm_account() {
+  local name="${1:-}"
+  local force=""
+  for arg in "$@"; do
+    [[ "$arg" == "-f" || "$arg" == "--force" ]] && force="1"
+  done
+  [[ -z "$name" || "$name" == "-f" || "$name" == "--force" ]] && { echo "Usage: shift rm <name> [-f]"; exit 1; }
+
+  local cred_file="$ACCOUNTS_DIR/${name}.json"
+  [[ -f "$cred_file" ]] || { echo "Account '$name' not found."; exit 1; }
+
+  # active アカウントの削除は確認を挟む
+  local active
+  active=$(_active_name)
+  if [[ "$active" == "$name" && -z "$force" ]]; then
+    cat >&2 <<EOF
+⚠️  '$name' は現在アクティブなアカウントです。
+削除すると list で active マークが外れますが、~/.claude/.credentials.json
+自体は残るので Claude CLI は使用中のまま動きます。
+
+続行する場合は: shift rm $name -f
+中止しました。
+EOF
+    exit 1
+  fi
+
+  rm -f "$cred_file"
+  echo "Removed: $name"
+}
+
 start_server() {
   cd "$(dirname "$0")"
   node cli/server.js
 }
 
-case "${1:-}" in
+cmd="${1:-}"
+shift || true
+case "$cmd" in
   list)    list_accounts ;;
-  use)     use_account "${2:-}" ;;
+  use)     use_account "$@" ;;
   usage)   show_usage ;;
-  seed)    seed_account "${2:-}" ;;
-  add)     add_account "${2:-}" ;;
+  seed)    seed_account "$@" ;;
+  add)     add_account "$@" ;;
+  rm)      rm_account "$@" ;;
   server)  start_server ;;
   *)       usage ;;
 esac
