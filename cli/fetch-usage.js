@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
-const ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
+const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
 const API_URL = "https://api.anthropic.com/api/oauth/usage";
 
 export async function fetchUsage(token) {
@@ -19,10 +19,10 @@ export async function fetchUsage(token) {
   return res.json();
 }
 
-export function loadAccounts() {
+export function loadAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {
   let entries;
   try {
-    entries = readdirSync(ACCOUNTS_DIR, { withFileTypes: true });
+    entries = readdirSync(accountsDir, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -30,7 +30,7 @@ export function loadAccounts() {
     .filter((e) => e.isFile() && e.name.endsWith(".json"))
     .map((e) => {
       const name = e.name.replace(/\.json$/, "");
-      const raw = JSON.parse(readFileSync(join(ACCOUNTS_DIR, e.name), "utf8"));
+      const raw = JSON.parse(readFileSync(join(accountsDir, e.name), "utf8"));
       const token =
         raw.accessToken ??
         raw.claudeAiOauth?.accessToken ??

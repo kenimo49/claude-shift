@@ -2,15 +2,17 @@
 // SQLite に usage スナップショットを時系列保存する
 
 import Database from "better-sqlite3";
+import { mkdirSync } from "fs";
 import { join } from "path";
-import { homedir, mkdirSync } from "os";
+import { homedir } from "os";
 
-const DATA_DIR = join(homedir(), ".claude-shift");
-const DB_PATH = join(DATA_DIR, "usage.db");
+function defaultDataDir() {
+  return process.env.CLAUDE_SHIFT_DATA_DIR ?? join(homedir(), ".claude-shift");
+}
 
-function openDb() {
-  mkdirSync(DATA_DIR, { recursive: true });
-  const db = new Database(DB_PATH);
+function openDb(dataDir = defaultDataDir()) {
+  mkdirSync(dataDir, { recursive: true });
+  const db = new Database(join(dataDir, "usage.db"));
   db.exec(`
     CREATE TABLE IF NOT EXISTS snapshots (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,8 +28,8 @@ function openDb() {
   return db;
 }
 
-export function saveSnapshots(usageList) {
-  const db = openDb();
+export function saveSnapshots(usageList, dataDir) {
+  const db = openDb(dataDir);
   const now = Date.now();
   const insert = db.prepare(`
     INSERT INTO snapshots
@@ -55,8 +57,8 @@ export function saveSnapshots(usageList) {
   db.close();
 }
 
-export function getLatestSnapshots() {
-  const db = openDb();
+export function getLatestSnapshots(dataDir) {
+  const db = openDb(dataDir);
   const rows = db
     .prepare(`
       SELECT s.*
@@ -73,8 +75,8 @@ export function getLatestSnapshots() {
   return rows;
 }
 
-export function getHistory(account, limitHours = 24) {
-  const db = openDb();
+export function getHistory(account, limitHours = 24, dataDir) {
+  const db = openDb(dataDir);
   const since = Date.now() - limitHours * 3600 * 1000;
   const rows = db
     .prepare(

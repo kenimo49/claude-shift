@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "server": "node cli/server.js",
-    "usage": "node cli/fetch-usage.js"
+    "usage": "node cli/fetch-usage.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3"
