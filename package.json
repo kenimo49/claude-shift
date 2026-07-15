@@ -1,8 +1,18 @@
 {
   "name": "claude-shift",
   "version": "0.1.0",
-  "description": "Multi-account Claude Code manager",
+  "description": "Multi-account Claude Code manager: switch active login, sync the two-file auth Claude Code reads, and observe 5-hour and weekly usage across accounts.",
   "type": "module",
+  "license": "MIT",
+  "author": "Ken Imoto",
+  "homepage": "https://kenimoto.dev/products/claude-shift/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kenimo49/claude-shift.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "server": "node cli/server.js",
     "usage": "node cli/fetch-usage.js",
