@@ -27,7 +27,16 @@ function renderAccount(row) {
 
 async function load(live = false) {
   const container = document.getElementById("accounts");
-  container.innerHTML = "<p class='loading'>取得中...</p>";
+  const btn = document.getElementById("btn-refresh");
+
+  // live=false（初回）は空 → 「取得中」表示、live=true は既存カード維持でボタンだけ更新中
+  if (live) {
+    btn.disabled = true;
+    btn.classList.add("loading");
+    btn.textContent = "更新中...";
+  } else {
+    container.innerHTML = "<p class='loading'>取得中...</p>";
+  }
 
   try {
     const endpoint = live ? `${SERVER}/usage/live` : `${SERVER}/usage`;
@@ -49,6 +58,10 @@ async function load(live = false) {
     }
   } catch (e) {
     container.innerHTML = `<p class='error'>サーバーに接続できません。<br><code>shift server</code> を起動してください。<br><small>${e.message}</small></p>`;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("loading");
+    btn.textContent = "今すぐ更新";
   }
 }
 

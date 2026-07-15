@@ -45,7 +45,9 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/usage/live") {
     await refresh();
-    respond(res, 200, { accounts: cache, fetched_at: lastFetched });
+    // /usage と同じスキーマ (snapshot 形式) で返すために DB 経由で読み直す
+    const latest = getLatestSnapshots();
+    respond(res, 200, { accounts: latest, fetched_at: lastFetched });
     return;
   }
 
