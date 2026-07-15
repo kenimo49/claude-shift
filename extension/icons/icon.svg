@@ -1,0 +1,19 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e3a5f"/>
+      <stop offset="1" stop-color="#0f1a2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="26" ry="26" fill="url(#bg)"/>
+  <!-- 上向き矢印（右） -->
+  <g stroke="#bfdbfe" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 82 92 L 82 38"/>
+    <path d="M 68 52 L 82 38 L 96 52"/>
+  </g>
+  <!-- 下向き矢印（左） -->
+  <g stroke="#93c5fd" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85">
+    <path d="M 46 36 L 46 90"/>
+    <path d="M 32 76 L 46 90 L 60 76"/>
+  </g>
+</svg>
