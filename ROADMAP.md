@@ -55,37 +55,19 @@
 
 ## サーバ常駐化 (別問題)
 
-`shift server` を起動しっぱなしにしたいユーザー向け:
+`shift server` を起動しっぱなしにしたいユーザー向け。
 
 ### Linux / WSL2 (systemd user service)
 
-```ini
-# ~/.config/systemd/user/claude-shift.service
-[Unit]
-Description=claude-shift usage poller
-
-[Service]
-ExecStart=/usr/bin/node /path/to/claude-shift/cli/server.js --interval 5
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-```bash
-systemctl --user enable --now claude-shift.service
-loginctl enable-linger $USER  # ログアウトしても常駐
-```
-
-WSL2 は `/etc/wsl.conf` に `[boot]\nsystemd=true` が必要。
+実装済み。手順は [docs/service-setup.md](docs/service-setup.md) を参照 (unit テンプレートは [contrib/systemd/claude-shift.service](contrib/systemd/claude-shift.service))。
 
 ### macOS (launchd)
 
-`~/Library/LaunchAgents/dev.kenimoto.claude-shift.plist` を書いて `launchctl load`。
+未実装。`~/Library/LaunchAgents/dev.kenimoto.claude-shift.plist` を書いて `launchctl load` する形が定番。実機検証が終わったら docs/service-setup.md に追記予定。
 
 ### Windows native
 
-`nssm` or Task Scheduler で node プロセスを常駐化。未検証。
+未検証。`nssm` または Task Scheduler で node プロセスを常駐化する想定。WSL2 側で常駐させる方が実運用は楽 (前記 docs 参照)。
 
 ## 実装依存関係
 
