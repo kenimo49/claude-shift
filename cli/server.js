@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import { fetchAllUsage } from "./fetch-usage.js";
-import { saveSnapshots, getLatestSnapshots, getHistory } from "./db.js";
+import { saveSnapshots, getLatestSnapshots, getHistory, getAllHistory } from "./db.js";
 import { getActiveAccount, switchAccount } from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
@@ -139,6 +139,12 @@ const server = createServer(async (req, res) => {
     const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
     if (!account) { respond(res, 400, { error: "account param required" }); return; }
     respond(res, 200, getHistory(account, hours));
+    return;
+  }
+
+  if (url.pathname === "/history/all") {
+    const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
+    respond(res, 200, getAllHistory(hours));
     return;
   }
 

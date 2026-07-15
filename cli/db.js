@@ -88,3 +88,24 @@ export function getHistory(account, limitHours = 24, dataDir) {
   db.close();
   return rows;
 }
+
+// 全アカウント分の履歴を一括取得
+export function getAllHistory(limitHours = 24, dataDir) {
+  const db = openDb(dataDir);
+  const since = Date.now() - limitHours * 3600 * 1000;
+  const rows = db
+    .prepare(
+      `SELECT * FROM snapshots
+       WHERE captured_at >= ?
+       ORDER BY account ASC, captured_at ASC`
+    )
+    .all(since);
+  db.close();
+  // {account: [...], account2: [...]} の形にまとめる
+  const grouped = {};
+  for (const r of rows) {
+    if (!grouped[r.account]) grouped[r.account] = [];
+    grouped[r.account].push(r);
+  }
+  return grouped;
+}

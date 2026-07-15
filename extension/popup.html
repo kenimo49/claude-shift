@@ -10,6 +10,7 @@
       <h1>Claude Shift</h1>
       <div class="header-right">
         <span id="timestamp" class="timestamp"></span>
+        <button id="btn-analytics" class="icon-btn" title="分析">📊</button>
         <button id="btn-settings" class="icon-btn" title="設定">⚙</button>
       </div>
     </header>
@@ -19,6 +20,33 @@
     <footer>
       <button id="btn-refresh" class="footer-btn primary">今すぐ更新</button>
     </footer>
+
+    <!-- 分析モーダル -->
+    <div id="analytics-modal" class="modal hidden">
+      <div class="modal-backdrop" data-close="analytics"></div>
+      <div class="modal-body modal-body-wide">
+        <div class="modal-header">
+          <span>分析グラフ</span>
+          <button class="icon-btn" data-close="analytics" title="閉じる">×</button>
+        </div>
+        <div class="modal-content">
+          <div class="chart-controls">
+            <div class="seg-btn-group" data-group="metric">
+              <button data-value="five_hour_pct" class="seg-btn is-on">5時間枠</button>
+              <button data-value="weekly_pct" class="seg-btn">週次</button>
+            </div>
+            <div class="seg-btn-group" data-group="range">
+              <button data-value="6" class="seg-btn">6h</button>
+              <button data-value="24" class="seg-btn is-on">24h</button>
+              <button data-value="168" class="seg-btn">7d</button>
+            </div>
+          </div>
+          <div id="chart-container"></div>
+          <div id="chart-legend" class="chart-legend"></div>
+          <div id="chart-msg" class="modal-msg"></div>
+        </div>
+      </div>
+    </div>
 
     <!-- 設定モーダル -->
     <div id="modal" class="modal hidden">
