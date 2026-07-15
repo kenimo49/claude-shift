@@ -8,10 +8,15 @@
 claude-shift/
 ├── shift.sh          # メインCLI
 ├── cli/
+│   ├── accounts.js     # 切替 (credentials.json + ~/.claude.json 両方)
 │   ├── fetch-usage.js  # api.anthropic.com からusage取得
 │   ├── db.js           # SQLite時系列保存
 │   └── server.js       # localhost:19867 API サーバー
-└── extension/          # Chrome拡張 (UI)
+├── extension/          # Chrome拡張 (UI)
+└── docs/
+    ├── account-setup.md          # 登録・切替ガイド
+    └── knowledge/                # Claude Code 内部仕様メモ
+        └── claude-code-auth-internals.md
 ```
 
 ## セットアップ
@@ -75,3 +80,9 @@ npm run server
 | `GET /usage` | 最新スナップショット（DB） |
 | `GET /usage/live` | APIから今すぐ再取得 |
 | `GET /history?account=accountA&hours=24` | 過去24時間の推移 |
+| `GET /active` / `POST /active` | 現在アクティブなアカウントの取得・切替 |
+| `GET /config` / `POST /config` | ポーリング間隔の取得・変更 |
+
+## 内部仕様メモ
+
+- [Claude Code の認証構造 (credentials.json + ~/.claude.json)](docs/knowledge/claude-code-auth-internals.md)

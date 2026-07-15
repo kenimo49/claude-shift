@@ -82,12 +82,10 @@ use_account() {
   local cred_file="$ACCOUNTS_DIR/${name}.json"
   [[ -f "$cred_file" ]] || { echo "Account '$name' not found. Run: shift list"; exit 1; }
 
-  # 現在のアカウントへリフレッシュ済みトークンを書き戻してから切り替え
-  _sync_back
-
-  cp "$cred_file" "$CREDENTIALS"
-  chmod 600 "$CREDENTIALS"
-  echo "Switched to: $name"
+  # Node実装に委譲: credentials.json + ~/.claude.json の oauthAccount 両方を更新
+  local script_dir
+  script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+  node "$script_dir/cli/accounts.js" "$name"
 }
 
 show_usage() {

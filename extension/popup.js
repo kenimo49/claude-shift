@@ -16,10 +16,17 @@ function renderLimit(title, pct, resetAt) {
     </div>`;
 }
 
-function renderAccount(row) {
+function renderAccount(row, activeName) {
+  const isActive = row.account === activeName;
+  const marker = isActive
+    ? '<span class="active-badge">使用中</span>'
+    : `<button class="switch-btn" data-account="${row.account}">切替</button>`;
   return `
-    <div class="account-card">
-      <div class="account-name">${row.account}</div>
+    <div class="account-card ${isActive ? "is-active" : ""}">
+      <div class="account-header">
+        <div class="account-name">${row.account}</div>
+        ${marker}
+      </div>
       ${renderLimit("5時間枠", row.five_hour_pct, row.five_hour_reset_at)}
       ${renderLimit("週次", row.weekly_pct, row.weekly_reset_at)}
     </div>`;
@@ -41,14 +48,14 @@ async function load(live = false) {
     const endpoint = live ? `${SERVER}/usage/live` : `${SERVER}/usage`;
     const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { accounts, fetched_at } = await res.json();
+    const { accounts, active, fetched_at } = await res.json();
 
     if (!accounts || accounts.length === 0) {
       container.innerHTML = "<p class='empty'>アカウントが見つかりません。<br>~/.claude-shift/accounts/ にcredentialsを追加してください。</p>";
       return;
     }
 
-    container.innerHTML = accounts.map(renderAccount).join("");
+    container.innerHTML = accounts.map((a) => renderAccount(a, active)).join("");
 
     const ts = document.getElementById("timestamp");
     if (fetched_at) {
@@ -131,6 +138,27 @@ async function saveSettings() {
   }
 }
 
+async function switchAccountUI(name, btn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "切替中...";
+  try {
+    const res = await fetch(`${SERVER}/active`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    // 成功したら再描画
+    await load();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = original;
+    btn.title = `切替失敗: ${e.message}`;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   load();
   document.getElementById("btn-refresh").addEventListener("click", () => load(true));
@@ -140,4 +168,11 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-save").addEventListener("click", saveSettings);
   document.querySelector("#modal .modal-backdrop")
     .addEventListener("click", closeSettings);
+
+  // カード内の切替ボタン (event delegation)
+  document.getElementById("accounts").addEventListener("click", (e) => {
+    const btn = e.target.closest(".switch-btn");
+    if (!btn) return;
+    switchAccountUI(btn.dataset.account, btn);
+  });
 });

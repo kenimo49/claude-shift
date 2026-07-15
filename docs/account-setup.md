@@ -84,12 +84,13 @@ chmod 600 ~/.claude-shift/accounts/<name>.json
 bash shift.sh use kumiko
 ```
 
-内部で以下を実行します：
+内部で以下を実行します（`cli/accounts.js` に委譲）：
 
-1. `_sync_back`: 現在の `credentials.json` を、現在アクティブなアカウントファイルへ書き戻す（refresh 済みトークンを保全）
+1. sync-back: 現在の `credentials.json` を、現在アクティブなアカウントファイルへ書き戻す（refresh 済みトークンを保全）
 2. `kumiko.json` の内容を `credentials.json` にコピー
+3. 新トークンで `https://api.anthropic.com/api/oauth/profile` を叩き、`~/.claude.json` の `oauthAccount` フィールドを新アカウントのメタデータで更新
 
-これにより、切り替え前のアカウントで自動リフレッシュされたトークンが失われることを防いでいます。
+`credentials.json` だけ更新すると `/status` の表示が古いままになる仕様上の罠があります。詳細は [docs/knowledge/claude-code-auth-internals.md](knowledge/claude-code-auth-internals.md) を参照。
 
 ## credentials.json のフォーマット
 

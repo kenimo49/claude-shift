@@ -7,6 +7,7 @@ import { dirname, join } from "path";
 import { homedir } from "os";
 import { fetchAllUsage } from "./fetch-usage.js";
 import { saveSnapshots, getLatestSnapshots, getHistory } from "./db.js";
+import { getActiveAccount, switchAccount } from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
 const CONFIG_PATH =
@@ -97,6 +98,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/usage") {
     respond(res, 200, {
       accounts: getLatestSnapshots(),
+      active: getActiveAccount(),
       fetched_at: lastFetched,
     });
     return;
@@ -104,8 +106,32 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/usage/live") {
     await refresh();
-    respond(res, 200, { accounts: getLatestSnapshots(), fetched_at: lastFetched });
+    respond(res, 200, {
+      accounts: getLatestSnapshots(),
+      active: getActiveAccount(),
+      fetched_at: lastFetched,
+    });
     return;
+  }
+
+  if (url.pathname === "/active") {
+    if (req.method === "GET") {
+      respond(res, 200, { active: getActiveAccount() });
+      return;
+    }
+    if (req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const { name } = JSON.parse(body || "{}");
+        if (!name) { respond(res, 400, { error: "name required" }); return; }
+        await switchAccount(name);
+        console.log(`[active] switched to ${name}`);
+        respond(res, 200, { active: name });
+      } catch (e) {
+        respond(res, 400, { error: e.message });
+      }
+      return;
+    }
   }
 
   if (url.pathname === "/history") {
