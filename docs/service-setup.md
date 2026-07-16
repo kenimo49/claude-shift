@@ -118,7 +118,7 @@ sudo loginctl disable-linger "$USER"
 
 ### `status: exited (code=203/EXEC)`
 
-`ExecStart` の `node` パスが見つからない状態です。`command -v node` の結果と `~/.config/systemd/user/claude-shift.service` の `ExecStart` を突き合わせて再度 sed 置換します。nvm を使っていて node が `~/.nvm/versions/...` にある場合はそのフルパスを指定します。
+`ExecStart` の `node` パスが見つからない状態です。`command -v node` の結果と `~/.config/systemd/user/claude-shift.service` の `ExecStart` を突き合わせて再度 sed 置換します。nvm を使っていて node が `~/.nvm/versions/...` にある場合、または [Volta](https://volta.sh/) を使っていて node が `~/.volta/tools/image/node/<version>/bin/node` にある場合はそのフルパスを指定します。
 
 ### ポート競合 (`EADDRINUSE`)
 

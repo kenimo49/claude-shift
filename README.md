@@ -56,7 +56,7 @@ chmod +x shift.sh
 ./shift.sh server --interval 5 # 5 分間隔
 ```
 
-ログイン中はずっと動かしたい場合は systemd user service にする手順が [docs/service-setup.md](docs/service-setup.md) にあります (Linux native / WSL2 対応)。
+ログイン中はずっと動かしたい場合は systemd user service にする手順が [docs/service-setup.md](docs/service-setup.md) にあります (Linux native / WSL2 対応)。**常駐化する場合は先に手動 server を止めてポート 19867 を空けてください ([§0](docs/service-setup.md#0-既存の手動-server-を止める-必要な場合のみ))。**
 
 ### 4. Chrome 拡張のロード (optional)
 
