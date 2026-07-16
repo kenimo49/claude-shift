@@ -100,6 +100,76 @@ main {
   background: linear-gradient(180deg, #1e2c46 0%, #1a2030 100%);
 }
 
+.account-card.needs-reauth {
+  border-color: #7c2d12;
+  background: linear-gradient(180deg, #2b1414 0%, #1a2030 100%);
+}
+
+.account-card.has-error {
+  border-color: #7c4a03;
+}
+
+.account-card.is-stale {
+  border-color: #3f3f46;
+}
+
+.account-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 10px;
+}
+
+.account-age {
+  color: #6b7280;
+}
+
+.account-age.never {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.status-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  cursor: help;
+}
+
+.status-badge.reauth {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.status-badge.error {
+  background: #78350f;
+  color: #fed7aa;
+}
+
+.status-badge.stale {
+  background: #374151;
+  color: #d1d5db;
+}
+
+.global-banner {
+  background: #7f1d1d;
+  color: #fecaca;
+  font-size: 11px;
+  padding: 7px 14px;
+  border-bottom: 1px solid #991b1b;
+  line-height: 1.4;
+}
+
+.global-banner.hidden { display: none; }
+
+.timestamp.has-error {
+  color: #fca5a5;
+}
+
 .account-header {
   display: flex;
   align-items: center;

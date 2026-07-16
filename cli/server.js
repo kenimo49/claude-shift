@@ -6,7 +6,14 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import { fetchAllUsage } from "./fetch-usage.js";
-import { saveSnapshots, getLatestSnapshots, getHistory, getAllHistory } from "./db.js";
+import {
+  saveSnapshots,
+  saveFailures,
+  getLatestSnapshots,
+  getLatestFailuresPerAccount,
+  getHistory,
+  getAllHistory,
+} from "./db.js";
 import { getActiveAccount, switchAccount } from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
@@ -43,23 +50,95 @@ function initialIntervalMinutes() {
 let pollMinutes = initialIntervalMinutes();
 let pollTimer = null;
 let cache = null;
+// 全アカウント成功した最後の時刻 (UI で「最終取得」に出す信頼できる時刻)
 let lastFetched = 0;
+// 直近の refresh 試行時刻 (失敗を含む) — UI では区別して出す
+let lastAttempted = 0;
+// in-flight refresh の共有 promise。setInterval と /usage/live の直列化用。
+// 走行中に refresh() を再度呼ぶと同じ promise を await して二重実行を防ぐ。
+let refreshInFlight = null;
 
 async function refresh() {
-  try {
-    const data = await fetchAllUsage();
-    saveSnapshots(data);
-    cache = data;
-    lastFetched = Date.now();
-    console.log(`[${new Date().toISOString()}] fetched ${data.length} accounts`);
-  } catch (e) {
-    console.error("fetch error:", e.message);
-  }
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const data = await fetchAllUsage();
+      saveSnapshots(data);
+      saveFailures(data);
+      cache = data;
+      lastAttempted = Date.now();
+
+      const failed = data.filter((u) => u.error);
+      if (failed.length === 0) {
+        lastFetched = lastAttempted;
+        console.log(`[${new Date().toISOString()}] fetched ${data.length} accounts`);
+      } else {
+        const ok = data.length - failed.length;
+        const fnames = failed.map((f) => `${f.name}(${f.error_kind ?? "err"}${f.http_status ? ` ${f.http_status}` : ""})`).join(", ");
+        console.error(
+          `[${new Date().toISOString()}] partial fetch: ${ok}/${data.length} ok, failed: ${fnames}`
+        );
+      }
+    } catch (e) {
+      console.error("fetch error:", e.message);
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 function reschedulePoll() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(refresh, pollMinutes * 60 * 1000);
+}
+
+// snapshot + failure を account 単位で merge した /usage レスポンスを構築する。
+// account: [{account, captured_at, five_hour_*, weekly_*, stale, needs_reauth?, last_error?, error_kind?}, ...]
+function buildUsagePayload() {
+  const STALE_THRESHOLD_MS = Math.max(pollMinutes * 2 * 60 * 1000, 5 * 60 * 1000);
+  const now = Date.now();
+  const snapshots = getLatestSnapshots();
+  const failures = getLatestFailuresPerAccount();
+  const failureByAccount = new Map(failures.map((f) => [f.account, f]));
+
+  // snapshot がまだ 1 度も無い account (登録直後 or ずっと失敗) も UI に出す
+  const accountNames = new Set([
+    ...snapshots.map((s) => s.account),
+    ...failures.map((f) => f.account),
+  ]);
+
+  const accounts = [...accountNames].sort().map((name) => {
+    const snap = snapshots.find((s) => s.account === name) ?? {
+      account: name,
+      captured_at: null,
+      five_hour_pct: null,
+      five_hour_reset_at: null,
+      weekly_pct: null,
+      weekly_reset_at: null,
+    };
+    const fail = failureByAccount.get(name);
+    const stale = snap.captured_at == null
+      ? true
+      : now - snap.captured_at > STALE_THRESHOLD_MS;
+    return {
+      ...snap,
+      stale,
+      needs_reauth: fail ? !!fail.needs_reauth : false,
+      last_error: fail?.message ?? null,
+      error_kind: fail?.kind ?? null,
+      error_at: fail?.at ?? null,
+    };
+  });
+
+  return {
+    accounts,
+    active: getActiveAccount(),
+    fetched_at: lastFetched || null,
+    attempted_at: lastAttempted || null,
+    any_stale: accounts.some((a) => a.stale),
+    any_needs_reauth: accounts.some((a) => a.needs_reauth),
+  };
 }
 
 function respond(res, status, body) {
@@ -96,21 +175,13 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/usage") {
-    respond(res, 200, {
-      accounts: getLatestSnapshots(),
-      active: getActiveAccount(),
-      fetched_at: lastFetched,
-    });
+    respond(res, 200, buildUsagePayload());
     return;
   }
 
   if (url.pathname === "/usage/live") {
     await refresh();
-    respond(res, 200, {
-      accounts: getLatestSnapshots(),
-      active: getActiveAccount(),
-      fetched_at: lastFetched,
-    });
+    respond(res, 200, buildUsagePayload());
     return;
   }
 

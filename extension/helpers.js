@@ -11,6 +11,21 @@ export function formatCountdown(ms, now = Date.now()) {
   return `${m}分後`;
 }
 
+// captured_at からの相対経過を「N 秒前 / N 分前 / N 時間前」に整形する。
+// UI では fetched_at の代わりに snapshot の age をユーザに示すために使う。
+export function formatRelativeAgo(ms, now = Date.now()) {
+  if (!ms) return "未取得";
+  const diff = Math.max(0, now - ms);
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}秒前`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}分前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}時間前`;
+  const d = Math.floor(h / 24);
+  return `${d}日前`;
+}
+
 export function formatResetClock(ms) {
   if (!ms) return null;
   const d = new Date(ms);

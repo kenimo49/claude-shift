@@ -26,9 +26,88 @@ export function extractToken(obj) {
   );
 }
 
+export function extractRefreshToken(obj) {
+  return (
+    obj?.claudeAiOauth?.refreshToken ??
+    obj?.refreshToken ??
+    obj?.refresh_token ??
+    null
+  );
+}
+
+export function extractExpiresAt(obj) {
+  const v =
+    obj?.claudeAiOauth?.expiresAt ??
+    obj?.expiresAt ??
+    obj?.expires_at ??
+    null;
+  return v == null ? null : Number(v);
+}
+
 function readJsonSafe(path) {
   if (!existsSync(path)) return null;
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
+}
+
+// refresh 済み token を account JSON (と必要なら active credentials.json) に書き戻す。
+// 既存フィールド (scopes, subscriptionType, rateLimitTier, その他) は保持する。
+//
+// active mirror は compare-and-swap 相当:
+//   1. account JSON を書く前に「元 access token」を snapshot
+//   2. 書いた直後、mirror 直前にもう一度 .credentials.json を読み、
+//      その中の access token が元 snapshot と一致するときだけ mirror する
+//   一致しないなら claude CLI や switchAccount が並行で別 token に書き換えているので、
+//   古い/別アカウントの credentials を戻さないよう mirror をスキップする。
+//
+// { active, mirrored, mirrorError?, mirrorSkipped? } を返す。
+export function writeAccountCreds(
+  accountPath,
+  { accessToken, refreshToken, expiresAt },
+  { credentialsPath = DEFAULT_CREDENTIALS, mirrorActive = true } = {}
+) {
+  if (!existsSync(accountPath)) throw new Error(`account file not found: ${accountPath}`);
+  const raw = JSON.parse(readFileSync(accountPath, "utf8"));
+
+  const previousAccountToken = extractToken(raw);
+  const activeTokenBefore = mirrorActive ? extractToken(readJsonSafe(credentialsPath)) : null;
+  const wasActive = !!activeTokenBefore && activeTokenBefore === previousAccountToken;
+
+  if (raw.claudeAiOauth) {
+    raw.claudeAiOauth = { ...raw.claudeAiOauth, accessToken, refreshToken, expiresAt };
+  } else if ("accessToken" in raw || "refreshToken" in raw || "expiresAt" in raw) {
+    raw.accessToken = accessToken;
+    raw.refreshToken = refreshToken;
+    raw.expiresAt = expiresAt;
+  } else {
+    // 想定外レイアウト: claudeAiOauth 形にラップする (fetch-usage 側と互換)
+    raw.claudeAiOauth = { accessToken, refreshToken, expiresAt };
+  }
+
+  writeFileSync(accountPath, JSON.stringify(raw, null, 2));
+  try { chmodSync(accountPath, 0o600); } catch {}
+
+  if (!(mirrorActive && wasActive)) {
+    return { active: wasActive, mirrored: false };
+  }
+
+  // CAS: .credentials.json を再読して、上で snapshot した previousAccountToken と
+  // まだ一致していることを確認してから mirror する。ズレていれば別プロセスが
+  // 更新済み (claude CLI の自前 refresh / switchAccount) なので上書きしない。
+  const currentActive = extractToken(readJsonSafe(credentialsPath));
+  if (currentActive !== previousAccountToken) {
+    return {
+      active: true,
+      mirrored: false,
+      mirrorSkipped: "credentials.json changed during refresh; not overwriting",
+    };
+  }
+  try {
+    writeFileSync(credentialsPath, readFileSync(accountPath));
+    chmodSync(credentialsPath, 0o600);
+  } catch (e) {
+    return { active: true, mirrored: false, mirrorError: e.message };
+  }
+  return { active: true, mirrored: true };
 }
 
 export function listAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {

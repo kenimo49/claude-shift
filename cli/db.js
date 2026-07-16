@@ -24,6 +24,17 @@ function openDb(dataDir = defaultDataDir()) {
       weekly_reset_at    INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_snapshots_account ON snapshots(account, captured_at);
+
+    CREATE TABLE IF NOT EXISTS failures (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      account     TEXT    NOT NULL,
+      at          INTEGER NOT NULL,
+      kind        TEXT    NOT NULL,
+      http_status INTEGER,
+      needs_reauth INTEGER NOT NULL DEFAULT 0,
+      message     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_failures_account ON failures(account, at);
   `);
   return db;
 }
@@ -85,6 +96,65 @@ export function getHistory(account, limitHours = 24, dataDir) {
        ORDER BY captured_at ASC`
     )
     .all(account, since);
+  db.close();
+  return rows;
+}
+
+// usageList 中の error 入りエントリを failures テーブルへ書き出す。
+// 直前の成功以降だけを見るために、per-account の最新 failure を後段で使う。
+export function saveFailures(usageList, dataDir) {
+  const failing = usageList.filter((u) => u.error);
+  if (failing.length === 0) return;
+  const db = openDb(dataDir);
+  const now = Date.now();
+  const insert = db.prepare(`
+    INSERT INTO failures
+      (account, at, kind, http_status, needs_reauth, message)
+    VALUES
+      (@account, @at, @kind, @http_status, @needs_reauth, @message)
+  `);
+  const insertAll = db.transaction((rows) => rows.forEach((r) => insert.run(r)));
+  insertAll(
+    failing.map((u) => ({
+      account: u.name,
+      at: now,
+      kind: u.error_kind ?? "http_error",
+      http_status: u.http_status ?? null,
+      needs_reauth: u.needs_reauth ? 1 : 0,
+      message: u.error ?? null,
+    }))
+  );
+  db.close();
+}
+
+// account ごとの「最新 snapshot 以降に起きた最新 failure」を返す。
+// 成功した snapshot が failure より新しければその account は clear 扱い (返り値に含まれない)。
+//
+// 同一ミリ秒 (lf.at === ls.at) の場合は snapshot 側を優先し、failure を返さない。
+// これは saveSnapshots → saveFailures の順で同一 refresh サイクル内に呼ばれる設計を
+// 反映したもので、成功と失敗が同時刻タイの場合はユーザー体験として「成功後の失敗」より
+// 「失敗前の成功」を最新として扱う方が UI が混乱しにくい。
+// (同一 account が同一 refresh サイクル内で成功 & 失敗の両方になることは無いので、
+//  この境界が発火するのは別サイクルで運悪く clock が同 ms に揃った時のみ)
+export function getLatestFailuresPerAccount(dataDir) {
+  const db = openDb(dataDir);
+  const rows = db
+    .prepare(`
+      WITH latest_snap AS (
+        SELECT account, MAX(captured_at) AS at FROM snapshots GROUP BY account
+      ),
+      latest_fail AS (
+        SELECT f.* FROM failures f
+        INNER JOIN (
+          SELECT account, MAX(at) AS at FROM failures GROUP BY account
+        ) t ON f.account = t.account AND f.at = t.at
+      )
+      SELECT lf.*
+      FROM latest_fail lf
+      LEFT JOIN latest_snap ls ON ls.account = lf.account
+      WHERE ls.at IS NULL OR lf.at > ls.at
+    `)
+    .all();
   db.close();
   return rows;
 }
