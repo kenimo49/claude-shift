@@ -32,15 +32,30 @@ const REAUTH_STATUS = new Set([401, 403, 429]);
 // - delta-seconds (整数秒): そのまま * 1000
 // - HTTP-date: Date.parse で絶対時刻 → now との差
 // - パース不能なら null (呼び出し側で fallback)
+// Retry-After は現実的には数分〜数時間なので、24 時間で clamp。
+// codex-review Medium 対策: 巨大整数 (MAX_SAFE_INTEGER 超) が unsafe int のまま
+// retry_after_ms に入るのを防ぐ + 悪意ある / 誤設定サーバの極端値からもガード。
+const RETRY_AFTER_MAX_MS = 24 * 60 * 60 * 1000;
+
 export function parseRetryAfter(headerValue, now = Date.now()) {
-  if (!headerValue) return null;
-  const trimmed = String(headerValue).trim();
+  if (headerValue == null) return null;
+  let trimmed = String(headerValue).trim();
   if (!trimmed) return null;
+  // codex-review Medium 対策: 環境によっては複数の Retry-After が "60, 120" のように
+  // カンマ結合されて渡ってくる。RFC 7231 は Retry-After は単一値だが、defensive に
+  // カンマ分割して各値を parse → 最小の待機時間を採用 (最短で復帰試行、無意味な長待ちを避ける)。
+  if (trimmed.includes(",")) {
+    const parts = trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+    const parsed = parts.map((p) => parseRetryAfter(p, now)).filter((v) => v != null);
+    if (parsed.length === 0) return null;
+    return Math.min(...parsed);
+  }
   // delta-seconds (RFC 7231: non-negative integer)
   if (/^\d+$/.test(trimmed)) {
     const s = parseInt(trimmed, 10);
     if (!Number.isFinite(s) || s < 0) return null;
-    return s * 1000;
+    const ms = s * 1000;
+    return Math.min(ms, RETRY_AFTER_MAX_MS);
   }
   // 単純な数値表現 (負数・小数など) は delta-seconds として不正、
   // Date.parse の環境依存 fallback (e.g. "-5" → 1970-01-01 起点解釈) にも
@@ -50,7 +65,8 @@ export function parseRetryAfter(headerValue, now = Date.now()) {
   const t = Date.parse(trimmed);
   if (!Number.isFinite(t)) return null;
   const diff = t - now;
-  return diff > 0 ? diff : 0;
+  if (diff <= 0) return 0;
+  return Math.min(diff, RETRY_AFTER_MAX_MS);
 }
 
 export async function fetchUsage(token, { fetchImpl = fetch } = {}) {
@@ -194,7 +210,12 @@ export async function fetchUsageForAccount(
     // expiresAt がまだ有効なのに 429 が返ったら「真の rate-limit」= token 側の問題ではない。
     // ここで refresh すると refreshToken rotation を無駄消費し、次の retry も 429 が返るだけ。
     // 早期 return して rate_limited として記録する。needs_reauth=false (再ログイン不要)。
-    if (status === 429 && !isExpired(account.expiresAt, now())) {
+    //
+    // codex-review High: expiresAt が null (未保存 / 破損 credential) のケースは
+    // 「有効」とみなさない。isExpired(null) が false を返すのに乗せると、旧 credential で
+    // 429 が来たとき無条件 rate_limited になり refresh chain が走らない。「有効」=
+    // 明示的に expiresAt が保存されていて、かつ isExpired が false のときだけ。
+    if (status === 429 && account.expiresAt != null && !isExpired(account.expiresAt, now())) {
       return {
         name: account.name,
         ok: false,
@@ -233,6 +254,7 @@ export async function fetchUsageForAccount(
         // refresh 直後にまた 429 → 「新 token でも rate-limited」なので needs_reauth ではなく
         // rate_limited として返す (rotation は既に 1 回消費してしまったが、以降を止める)
         if (status2 === 429) {
+          const retryMs2 = e2?.retryAfterMs ?? null;
           return {
             name: account.name,
             ok: false,
@@ -240,8 +262,10 @@ export async function fetchUsageForAccount(
             error_kind: "rate_limited",
             http_status: 429,
             needs_reauth: false,
-            retry_after_ms: e2?.retryAfterMs ?? null,
-            error: "rate limited after refresh (rotation was wasted)",
+            retry_after_ms: retryMs2,
+            error: retryMs2 != null
+              ? `rate limited after refresh (Retry-After: ${Math.round(retryMs2 / 1000)}s, rotation wasted)`
+              : "rate limited after refresh (rotation was wasted)",
           };
         }
         return {
