@@ -44,6 +44,17 @@ export function extractExpiresAt(obj) {
   return v == null ? null : Number(v);
 }
 
+// account JSON / ~/.claude.json 両対応で accountUuid を抜き出す。
+// issue #5: identity ベース照合の identity source。
+export function extractAccountUuid(obj) {
+  return (
+    obj?.oauthAccount?.accountUuid ??
+    obj?.claudeAiOauth?.oauthAccount?.accountUuid ??
+    obj?.accountUuid ??
+    null
+  );
+}
+
 function readJsonSafe(path) {
   if (!existsSync(path)) return null;
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
@@ -114,21 +125,64 @@ export function listAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {
   if (!existsSync(accountsDir)) return [];
   return readdirSync(accountsDir)
     .filter((f) => f.endsWith(".json"))
-    .map((f) => ({
-      name: f.replace(/\.json$/, ""),
-      path: join(accountsDir, f),
-      token: extractToken(readJsonSafe(join(accountsDir, f))),
-    }))
+    .map((f) => {
+      const path = join(accountsDir, f);
+      const raw = readJsonSafe(path);
+      return {
+        name: f.replace(/\.json$/, ""),
+        path,
+        token: extractToken(raw),
+        uuid: extractAccountUuid(raw),
+      };
+    })
     .filter((a) => a.token);
 }
 
-export function getActiveAccount(
+// issue #5: identity ベースで active アカウントを解決する。
+//
+// 従来: `.credentials.json` の accessToken 値と accounts/*.json の accessToken 値を
+//       文字列比較。claude CLI と shift はそれぞれ独立に refresh するので、片方が
+//       refresh した瞬間トークン値が乖離して active=null になる。
+//
+// 新設: `~/.claude.json.oauthAccount.accountUuid` (claude CLI が管理する current active
+//       の identity) と accounts/*.json の oauthAccount.accountUuid を照合する。
+//       token 値は refresh で変わるが uuid は不変なので乖離しない。
+//
+// 返り値: { name, method, syncBroken }
+//   - name: 解決した account 名 (null なら不明)
+//   - method: "uuid" | "token" | null  (どの経路でマッチしたか)
+//   - syncBroken: true なら claude CLI と shift のどちらも identity を特定できない
+//                 (uuid も token も一致する account が無い、しかし credentials.json は存在する状態)
+export function getActiveInfo(
   accountsDir = DEFAULT_ACCOUNTS_DIR,
-  credentialsPath = DEFAULT_CREDENTIALS
+  credentialsPath = DEFAULT_CREDENTIALS,
+  claudeJsonPath = DEFAULT_CLAUDE_JSON
 ) {
   const activeToken = extractToken(readJsonSafe(credentialsPath));
-  if (!activeToken) return null;
-  return listAccounts(accountsDir).find((a) => a.token === activeToken)?.name ?? null;
+  if (!activeToken) return { name: null, method: null, syncBroken: false };
+  const activeUuid = extractAccountUuid(readJsonSafe(claudeJsonPath));
+  const accounts = listAccounts(accountsDir);
+  // 1. uuid 一致 (最も信頼できる、トークン rotate に耐える)
+  if (activeUuid) {
+    const byUuid = accounts.find((a) => a.uuid === activeUuid);
+    if (byUuid) return { name: byUuid.name, method: "uuid", syncBroken: false };
+  }
+  // 2. token 一致 (uuid 未 migration な既存 accounts 向け fallback)
+  const byToken = accounts.find((a) => a.token === activeToken);
+  if (byToken) return { name: byToken.name, method: "token", syncBroken: false };
+  // 3. 両方外れた: credentials.json はあるが、どの account にも紐付かない。
+  //    accounts 登録が 0 のケースは syncBroken でも何でもないので除外する。
+  return { name: null, method: null, syncBroken: accounts.length > 0 };
+}
+
+// 従来互換 API: name だけ返す。呼び出し側は switchAccount など多数あるので互換維持する。
+// sync_broken 情報が欲しい呼び出し側 (server.js) は getActiveInfo を直接使う。
+export function getActiveAccount(
+  accountsDir = DEFAULT_ACCOUNTS_DIR,
+  credentialsPath = DEFAULT_CREDENTIALS,
+  claudeJsonPath = DEFAULT_CLAUDE_JSON
+) {
+  return getActiveInfo(accountsDir, credentialsPath, claudeJsonPath).name;
 }
 
 export async function fetchProfile(token) {
@@ -184,6 +238,31 @@ export function writeOAuthAccountToClaudeJson(newAccount, claudeJsonPath = DEFAU
   return true;
 }
 
+// account JSON に oauthAccount (identity 情報) を書き込む。
+// - shift add 直後 or 初回 refresh 時に profile fetch → uuid 等を埋める。
+// - 既存フィールドは preserve (accessToken/refreshToken 等は書き換えない)。
+// - 既に oauthAccount がある場合は merge。
+export function enrichAccountIdentity(accountPath, oauthAccount) {
+  if (!existsSync(accountPath)) throw new Error(`account file not found: ${accountPath}`);
+  const raw = JSON.parse(readFileSync(accountPath, "utf8"));
+  raw.oauthAccount = { ...(raw.oauthAccount ?? {}), ...oauthAccount };
+  writeFileSync(accountPath, JSON.stringify(raw, null, 2));
+  try { chmodSync(accountPath, 0o600); } catch {}
+  return raw.oauthAccount;
+}
+
+// profile fetch → oauthAccount 形式に変換 → account JSON に保存。
+// network 失敗は throw する (呼び出し側で catch → best-effort 扱いに)。
+export async function enrichIdentityForAccount(accountPath, { fetchProfileImpl = fetchProfile } = {}) {
+  const raw = readJsonSafe(accountPath);
+  if (!raw) throw new Error(`account file unreadable: ${accountPath}`);
+  const token = extractToken(raw);
+  if (!token) throw new Error(`account has no accessToken: ${accountPath}`);
+  const profile = await fetchProfileImpl(token);
+  const oauthAccount = profileToOAuthAccount(profile);
+  return enrichAccountIdentity(accountPath, oauthAccount);
+}
+
 export async function switchAccount(
   name,
   {
@@ -224,14 +303,24 @@ export async function switchAccount(
   return name;
 }
 
-// CLI エントリポイント: node cli/accounts.js <name>
+// CLI エントリポイント:
+//   node cli/accounts.js <name>              switchAccount 実行
+//   node cli/accounts.js --enrich <name>     account に identity (uuid 等) を埋め込む (best-effort)
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [, , name] = process.argv;
-  if (!name) {
-    console.error("Usage: node cli/accounts.js <name>");
-    process.exit(1);
+  const args = process.argv.slice(2);
+  const usage = "Usage: node cli/accounts.js <name> | --enrich <name>";
+  if (args[0] === "--enrich") {
+    const name = args[1];
+    if (!name) { console.error(usage); process.exit(1); }
+    const path = join(DEFAULT_ACCOUNTS_DIR, `${name}.json`);
+    enrichIdentityForAccount(path)
+      .then((o) => console.log(`Enriched ${name}: uuid=${o.accountUuid ?? "(none)"}`))
+      .catch((e) => { console.error(`enrich failed: ${e.message}`); process.exit(1); });
+  } else {
+    const [name] = args;
+    if (!name) { console.error(usage); process.exit(1); }
+    switchAccount(name)
+      .then(() => console.log(`Switched to: ${name}`))
+      .catch((e) => { console.error(e.message); process.exit(1); });
   }
-  switchAccount(name)
-    .then(() => console.log(`Switched to: ${name}`))
-    .catch((e) => { console.error(e.message); process.exit(1); });
 }

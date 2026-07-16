@@ -5,11 +5,14 @@
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { readFileSync as _readFileSync } from "fs";
 import {
   extractToken,
   extractRefreshToken,
   extractExpiresAt,
+  extractAccountUuid,
   writeAccountCreds,
+  enrichIdentityForAccount,
 } from "./accounts.js";
 import { refreshOAuthToken } from "./token-refresh.js";
 
@@ -105,6 +108,18 @@ export async function fetchUsageForAccount(
       } catch (e) {
         // account JSON への書き戻し自体の失敗はログ相当だが fetch は続行する
         console.error(`[fetch-usage] ${account.name}: writeback failed: ${e.message}`);
+      }
+      // issue #5: identity migration
+      // account JSON に oauthAccount.accountUuid が未保存なら、新 token を使って
+      // profile fetch し埋め込む。既存 accounts の自動 migration 用。
+      // 失敗しても refresh 自体は続行 (best-effort)。
+      try {
+        const raw = JSON.parse(_readFileSync(account.path, "utf8"));
+        if (!extractAccountUuid(raw)) {
+          await enrichIdentityForAccount(account.path);
+        }
+      } catch (e) {
+        console.warn(`[fetch-usage] ${account.name}: identity enrich skipped: ${e.message}`);
       }
       return { ok: true };
     } catch (e) {

@@ -14,7 +14,7 @@ import {
   getHistory,
   getAllHistory,
 } from "./db.js";
-import { getActiveAccount, switchAccount } from "./accounts.js";
+import { getActiveAccount, getActiveInfo, switchAccount } from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
 const CONFIG_PATH =
@@ -131,9 +131,14 @@ function buildUsagePayload() {
     };
   });
 
+  // issue #5: identity ベース照合。active_method で「uuid/token/なし」を出し、
+  // sync_broken=true は claude CLI と shift の同期が切れていることを popup に伝える。
+  const activeInfo = getActiveInfo();
   return {
     accounts,
-    active: getActiveAccount(),
+    active: activeInfo.name,
+    active_method: activeInfo.method,
+    sync_broken: activeInfo.syncBroken,
     fetched_at: lastFetched || null,
     attempted_at: lastAttempted || null,
     any_stale: accounts.some((a) => a.stale),
