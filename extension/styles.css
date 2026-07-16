@@ -184,6 +184,21 @@ main {
   color: #f3f4f6;
 }
 
+/* アカウント名マスキング (共有時用)。
+   filter: blur なので DOM 値は保持され、hover や copy でも読み取り可能 —
+   あくまで screenshot / 画面共有時の目隠し用。
+   対象: 一覧の .account-name と、分析チャート凡例の .legend-name */
+body.is-masked .account-name,
+body.is-masked .legend-name {
+  filter: blur(5px);
+  transition: filter 0.15s;
+  user-select: none;
+}
+body.is-masked .account-name:hover,
+body.is-masked .legend-name:hover {
+  filter: blur(0);
+}
+
 .active-badge {
   background: #1e3a5f;
   color: #bfdbfe;
