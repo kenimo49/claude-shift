@@ -103,22 +103,25 @@ describe("fetchUsageForAccount", () => {
     }
   });
 
-  test("429 も refresh 対象 (期限切れ token でも 429 が返る)", async () => {
-    const { tmp, account } = makeAccount();
+  // issue #6: 429 の扱いは "期限切れ由来" と "真の rate-limit" で分岐する。
+  // 期限切れ (isExpired=true) なら proactive refresh が先に走るのでここに来るのは
+  // 稀だが、期限直前 (skew 内) で proactive をすり抜けたケースを想定する。
+  // 詳細は tests/fetch-usage-rate-limit.test.js を参照。
+  test("expiresAt 有効 & 429 → rate_limited として refresh を skip (issue #6)", async () => {
+    const { tmp, account } = makeAccount(); // expiresAt = 1h 先
     try {
-      let call = 0;
-      const fetchImpl = async () => {
-        call += 1;
-        if (call === 1) return { ok: false, status: 429 };
-        return { ok: true, json: async () => ({ five_hour: { utilization: 40 } }) };
-      };
-      const refreshImpl = async () => ({
-        accessToken: "sk-ant-oat01-R",
-        refreshToken: "sk-ant-ort01-R",
-        expiresAt: Date.now() + 3600 * 1000,
+      let refreshCalled = 0;
+      const fetchImpl = async () => ({
+        ok: false,
+        status: 429,
+        headers: { get: () => "30" },
       });
+      const refreshImpl = async () => { refreshCalled += 1; return {}; };
       const r = await fetchUsageForAccount(account, { fetchImpl, refreshImpl });
-      assert.equal(r.ok, true);
+      assert.equal(r.ok, false);
+      assert.equal(r.error_kind, "rate_limited");
+      assert.equal(r.needs_reauth, false);
+      assert.equal(refreshCalled, 0);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

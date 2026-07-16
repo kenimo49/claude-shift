@@ -167,6 +167,11 @@ main {
   color: #fed7aa;
 }
 
+.status-badge.rate-limited {
+  background: #713f12;
+  color: #fde68a;
+}
+
 .global-banner {
   background: #7f1d1d;
   color: #fecaca;

@@ -31,6 +31,9 @@ function renderAccount(row, activeName, syncBroken) {
   }
   if (row.needs_reauth) {
     statusBadges.push('<span class="status-badge reauth" title="refresh 失敗。/login で再ログインが必要">再ログイン必要</span>');
+  } else if (row.error_kind === "rate_limited") {
+    // issue #6: 429 で token 健全なケース。refresh してもすぐには回復しないので badge で明示。
+    statusBadges.push(`<span class="status-badge rate-limited" title="${escapeAttr(row.last_error ?? "rate limited")}">レート制限中</span>`);
   } else if (row.last_error) {
     statusBadges.push(`<span class="status-badge error" title="${escapeAttr(row.last_error)}">取得失敗</span>`);
   } else if (row.stale) {
