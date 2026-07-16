@@ -54,29 +54,38 @@ let cache = null;
 let lastFetched = 0;
 // 直近の refresh 試行時刻 (失敗を含む) — UI では区別して出す
 let lastAttempted = 0;
+// in-flight refresh の共有 promise。setInterval と /usage/live の直列化用。
+// 走行中に refresh() を再度呼ぶと同じ promise を await して二重実行を防ぐ。
+let refreshInFlight = null;
 
 async function refresh() {
-  try {
-    const data = await fetchAllUsage();
-    saveSnapshots(data);
-    saveFailures(data);
-    cache = data;
-    lastAttempted = Date.now();
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const data = await fetchAllUsage();
+      saveSnapshots(data);
+      saveFailures(data);
+      cache = data;
+      lastAttempted = Date.now();
 
-    const failed = data.filter((u) => u.error);
-    if (failed.length === 0) {
-      lastFetched = lastAttempted;
-      console.log(`[${new Date().toISOString()}] fetched ${data.length} accounts`);
-    } else {
-      const ok = data.length - failed.length;
-      const fnames = failed.map((f) => `${f.name}(${f.error_kind ?? "err"}${f.http_status ? ` ${f.http_status}` : ""})`).join(", ");
-      console.error(
-        `[${new Date().toISOString()}] partial fetch: ${ok}/${data.length} ok, failed: ${fnames}`
-      );
+      const failed = data.filter((u) => u.error);
+      if (failed.length === 0) {
+        lastFetched = lastAttempted;
+        console.log(`[${new Date().toISOString()}] fetched ${data.length} accounts`);
+      } else {
+        const ok = data.length - failed.length;
+        const fnames = failed.map((f) => `${f.name}(${f.error_kind ?? "err"}${f.http_status ? ` ${f.http_status}` : ""})`).join(", ");
+        console.error(
+          `[${new Date().toISOString()}] partial fetch: ${ok}/${data.length} ok, failed: ${fnames}`
+        );
+      }
+    } catch (e) {
+      console.error("fetch error:", e.message);
+    } finally {
+      refreshInFlight = null;
     }
-  } catch (e) {
-    console.error("fetch error:", e.message);
-  }
+  })();
+  return refreshInFlight;
 }
 
 function reschedulePoll() {

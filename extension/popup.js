@@ -18,9 +18,11 @@ function renderLimit(title, pct, resetAt) {
 
 function renderAccount(row, activeName) {
   const isActive = row.account === activeName;
+  const accountAttr = escapeAttr(row.account);
+  const accountText = escapeHtml(row.account);
   const marker = isActive
     ? '<span class="active-badge">使用中</span>'
-    : `<button class="switch-btn" data-account="${row.account}">切替</button>`;
+    : `<button class="switch-btn" data-account="${accountAttr}">切替</button>`;
 
   const statusBadges = [];
   if (row.needs_reauth) {
@@ -46,7 +48,7 @@ function renderAccount(row, activeName) {
   return `
     <div class="${classes}">
       <div class="account-header">
-        <div class="account-name">${row.account}</div>
+        <div class="account-name">${accountText}</div>
         ${marker}
       </div>
       <div class="account-meta">
@@ -58,11 +60,14 @@ function renderAccount(row, activeName) {
     </div>`;
 }
 
+// HTML 属性値用のエスケープ (title=".." data-account=".." 等)
 function escapeAttr(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[c]);
 }
+// テキストノード用の HTML エスケープ (エンコード対象は同じだが用途を明示)
+const escapeHtml = escapeAttr;
 
 async function load(live = false) {
   const container = document.getElementById("accounts");
@@ -290,7 +295,7 @@ function drawChart(history, metric, hours) {
     return `
       <span class="legend-item">
         <span class="legend-swatch" style="background:${color}"></span>
-        <span class="legend-name">${account}</span>
+        <span class="legend-name">${escapeHtml(account)}</span>
         <span class="legend-value">${latest != null ? `${Math.round(latest)}%` : "-"}</span>
       </span>`;
   }).join("");

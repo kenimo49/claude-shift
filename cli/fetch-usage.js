@@ -11,7 +11,7 @@ import {
   extractExpiresAt,
   writeAccountCreds,
 } from "./accounts.js";
-import { refreshOAuthToken, RefreshError } from "./token-refresh.js";
+import { refreshOAuthToken } from "./token-refresh.js";
 
 const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
 const API_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -94,14 +94,22 @@ export async function fetchUsageForAccount(
       token = next.accessToken;
       refreshedThisCall = true;
       try {
-        writeback(account.path, next);
+        const result = writeback(account.path, next);
+        // active account の mirror が失敗した / CAS で skip した場合は silent にしない。
+        // issue #3 の再発 (「silent に古いデータで表示」) を防ぐため、明示的にログ。
+        if (result?.mirrorError) {
+          console.error(`[fetch-usage] ${account.name}: credentials.json mirror failed: ${result.mirrorError}`);
+        } else if (result?.mirrorSkipped) {
+          console.warn(`[fetch-usage] ${account.name}: credentials.json mirror skipped (${result.mirrorSkipped})`);
+        }
       } catch (e) {
-        // 書き戻し失敗はログ相当だが fetch は続行する
+        // account JSON への書き戻し自体の失敗はログ相当だが fetch は続行する
         console.error(`[fetch-usage] ${account.name}: writeback failed: ${e.message}`);
       }
       return { ok: true };
     } catch (e) {
-      const needs = e instanceof RefreshError ? !!e.needsReauth : false;
+      // needsReauth は duck-typed で判定 (RefreshError instanceof チェックは DI mock で通らない)
+      const needs = !!e?.needsReauth;
       return {
         needs_reauth: needs,
         error_kind: "refresh_failed",

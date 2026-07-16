@@ -124,23 +124,41 @@ describe("fetchUsageForAccount", () => {
     }
   });
 
-  test("refresh 失敗 (needsReauth) は needs_reauth: true で返す", async () => {
+  test("refresh 失敗 (needsReauth) は needs_reauth: true で返す (duck-typing)", async () => {
     const { tmp, account } = makeAccount({ expiresAt: Date.now() - 1000 });
     try {
       const fetchImpl = async () => { throw new Error("should not fetch"); };
       const refreshImpl = async () => {
+        // DI mock の raw Error に needsReauth プロパティだけ生やす
+        // (RefreshError インスタンスではないので instanceof は false)
         const e = new Error("refresh rejected: HTTP 401");
         e.needsReauth = true;
         e.status = 401;
-        // token-refresh.js の RefreshError と同型
-        Object.setPrototypeOf(e, Error.prototype);
-        e.name = "RefreshError";
         throw e;
       };
       const r = await fetchUsageForAccount(account, { fetchImpl, refreshImpl });
       assert.equal(r.ok, false);
-      // instanceof チェックは token-refresh.js で行うので、fetch-usage は e.needsReauth を見る
       assert.equal(r.error_kind, "refresh_failed");
+      // duck-typing で needsReauth プロパティを見るので true になるべき
+      assert.equal(r.needs_reauth, true);
+      assert.equal(r.http_status, 401);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("refresh 失敗で needsReauth なし (5xx 系) は needs_reauth: false", async () => {
+    const { tmp, account } = makeAccount({ expiresAt: Date.now() - 1000 });
+    try {
+      const fetchImpl = async () => { throw new Error("should not fetch"); };
+      const refreshImpl = async () => {
+        const e = new Error("refresh failed: HTTP 503");
+        e.status = 503;
+        throw e;
+      };
+      const r = await fetchUsageForAccount(account, { fetchImpl, refreshImpl });
+      assert.equal(r.ok, false);
+      assert.equal(r.needs_reauth, false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

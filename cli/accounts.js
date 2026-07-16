@@ -51,6 +51,15 @@ function readJsonSafe(path) {
 
 // refresh 済み token を account JSON (と必要なら active credentials.json) に書き戻す。
 // 既存フィールド (scopes, subscriptionType, rateLimitTier, その他) は保持する。
+//
+// active mirror は compare-and-swap 相当:
+//   1. account JSON を書く前に「元 access token」を snapshot
+//   2. 書いた直後、mirror 直前にもう一度 .credentials.json を読み、
+//      その中の access token が元 snapshot と一致するときだけ mirror する
+//   一致しないなら claude CLI や switchAccount が並行で別 token に書き換えているので、
+//   古い/別アカウントの credentials を戻さないよう mirror をスキップする。
+//
+// { active, mirrored, mirrorError?, mirrorSkipped? } を返す。
 export function writeAccountCreds(
   accountPath,
   { accessToken, refreshToken, expiresAt },
@@ -59,8 +68,9 @@ export function writeAccountCreds(
   if (!existsSync(accountPath)) throw new Error(`account file not found: ${accountPath}`);
   const raw = JSON.parse(readFileSync(accountPath, "utf8"));
 
+  const previousAccountToken = extractToken(raw);
   const activeTokenBefore = mirrorActive ? extractToken(readJsonSafe(credentialsPath)) : null;
-  const isActive = activeTokenBefore && activeTokenBefore === extractToken(raw);
+  const wasActive = !!activeTokenBefore && activeTokenBefore === previousAccountToken;
 
   if (raw.claudeAiOauth) {
     raw.claudeAiOauth = { ...raw.claudeAiOauth, accessToken, refreshToken, expiresAt };
@@ -76,19 +86,28 @@ export function writeAccountCreds(
   writeFileSync(accountPath, JSON.stringify(raw, null, 2));
   try { chmodSync(accountPath, 0o600); } catch {}
 
-  // active アカウントの token を refresh した場合、~/.claude/.credentials.json も
-  // 同期しないと switchAccount の sync-back で古い token に上書きされる。
-  if (mirrorActive && isActive) {
-    try {
-      writeFileSync(credentialsPath, readFileSync(accountPath));
-      chmodSync(credentialsPath, 0o600);
-    } catch (e) {
-      // credentials 側は best-effort。account JSON への書き込みは成功済み。
-      return { active: true, mirrorError: e.message };
-    }
-    return { active: true };
+  if (!(mirrorActive && wasActive)) {
+    return { active: wasActive, mirrored: false };
   }
-  return { active: false };
+
+  // CAS: .credentials.json を再読して、上で snapshot した previousAccountToken と
+  // まだ一致していることを確認してから mirror する。ズレていれば別プロセスが
+  // 更新済み (claude CLI の自前 refresh / switchAccount) なので上書きしない。
+  const currentActive = extractToken(readJsonSafe(credentialsPath));
+  if (currentActive !== previousAccountToken) {
+    return {
+      active: true,
+      mirrored: false,
+      mirrorSkipped: "credentials.json changed during refresh; not overwriting",
+    };
+  }
+  try {
+    writeFileSync(credentialsPath, readFileSync(accountPath));
+    chmodSync(credentialsPath, 0o600);
+  } catch (e) {
+    return { active: true, mirrored: false, mirrorError: e.message };
+  }
+  return { active: true, mirrored: true };
 }
 
 export function listAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {

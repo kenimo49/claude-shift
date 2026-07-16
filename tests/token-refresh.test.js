@@ -64,6 +64,22 @@ describe("refreshOAuthToken", () => {
     await assert.rejects(() => refreshOAuthToken(""), /refreshToken is required/);
   });
 
+  test("expires_in が NaN/負値/undefined でも 3600 fallback", async () => {
+    for (const bad of [undefined, null, NaN, -1, "abc", Infinity, 0]) {
+      const fetchImpl = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: "sk-ant-oat01-T", expires_in: bad }),
+      });
+      const before = Date.now();
+      const r = await refreshOAuthToken("sk-ant-ort01-T", { fetchImpl });
+      const delta = r.expiresAt - before;
+      // 3600s * 1000 (± 少しの実行時間) が返るはず
+      assert.ok(delta >= 3600 * 1000 - 200 && delta <= 3600 * 1000 + 500,
+        `expected ~3600s fallback for expires_in=${bad}, got delta=${delta}ms`);
+    }
+  });
+
   test("全エンドポイント失敗時は最終ステータスでスロー", async () => {
     const fetchImpl = async () => ({ ok: false, status: 500 });
     await assert.rejects(
