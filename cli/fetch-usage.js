@@ -22,8 +22,36 @@ const API_URL = "https://api.anthropic.com/api/oauth/usage";
 
 // expiresAt の何 ms 前に proactive refresh するか (clock skew と API 呼び出し余裕を含めて 60 秒)
 const EXPIRY_SKEW_MS = 60 * 1000;
-// refresh を促す HTTP status (401 は当然、429 は期限切れ token で観測、403 は念のため)
+// refresh を促す HTTP status。
+// 401/403 は認証失敗系、429 は「期限切れ token で観測」した実績があるが、
+// 真の rate-limit (token 健全) でも 429 は返る。issue #6 で expiresAt との
+// 突き合わせで区別するようになった。
 const REAUTH_STATUS = new Set([401, 403, 429]);
+
+// RFC 7231 §7.1.3 Retry-After ヘッダをパースして「あと何 ms 待つか」を返す。
+// - delta-seconds (整数秒): そのまま * 1000
+// - HTTP-date: Date.parse で絶対時刻 → now との差
+// - パース不能なら null (呼び出し側で fallback)
+export function parseRetryAfter(headerValue, now = Date.now()) {
+  if (!headerValue) return null;
+  const trimmed = String(headerValue).trim();
+  if (!trimmed) return null;
+  // delta-seconds (RFC 7231: non-negative integer)
+  if (/^\d+$/.test(trimmed)) {
+    const s = parseInt(trimmed, 10);
+    if (!Number.isFinite(s) || s < 0) return null;
+    return s * 1000;
+  }
+  // 単純な数値表現 (負数・小数など) は delta-seconds として不正、
+  // Date.parse の環境依存 fallback (e.g. "-5" → 1970-01-01 起点解釈) にも
+  // 流したくないので明示的に null。
+  if (/^[+-]?\d+(\.\d+)?$/.test(trimmed)) return null;
+  // HTTP-date
+  const t = Date.parse(trimmed);
+  if (!Number.isFinite(t)) return null;
+  const diff = t - now;
+  return diff > 0 ? diff : 0;
+}
 
 export async function fetchUsage(token, { fetchImpl = fetch } = {}) {
   const res = await fetchImpl(API_URL, {
@@ -35,6 +63,9 @@ export async function fetchUsage(token, { fetchImpl = fetch } = {}) {
   if (!res.ok) {
     const err = new Error(`HTTP ${res.status}`);
     err.status = res.status;
+    // Retry-After ヘッダを載せる (429 の rate-limit 分岐で使う)
+    const retryAfterHeader = res.headers?.get?.("Retry-After") ?? null;
+    err.retryAfterMs = parseRetryAfter(retryAfterHeader);
     throw err;
   }
   return res.json();
@@ -157,8 +188,30 @@ export async function fetchUsageForAccount(
     return { name: account.name, ok: true, refreshed: refreshedThisCall, data };
   } catch (e) {
     const status = e?.status ?? null;
+    const retryAfterMs = e?.retryAfterMs ?? null;
+
+    // issue #6: 429 の rate-limit vs expired token 区別
+    // expiresAt がまだ有効なのに 429 が返ったら「真の rate-limit」= token 側の問題ではない。
+    // ここで refresh すると refreshToken rotation を無駄消費し、次の retry も 429 が返るだけ。
+    // 早期 return して rate_limited として記録する。needs_reauth=false (再ログイン不要)。
+    if (status === 429 && !isExpired(account.expiresAt, now())) {
+      return {
+        name: account.name,
+        ok: false,
+        refreshed: refreshedThisCall,
+        error_kind: "rate_limited",
+        http_status: 429,
+        needs_reauth: false,
+        retry_after_ms: retryAfterMs,
+        error: retryAfterMs != null
+          ? `rate limited (Retry-After: ${Math.round(retryAfterMs / 1000)}s)`
+          : "rate limited",
+      };
+    }
+
     if (status && REAUTH_STATUS.has(status) && !refreshedThisCall) {
-      // 401/403/429 → refresh してリトライを 1 回だけ
+      // 401/403 → refresh してリトライを 1 回だけ (429 は上で吸収済みだが、
+      // 期限切れ由来の 429 の場合は上の isExpired 判定が false→true 側に落ちるのでここに来る)
       // ただし proactive refresh を既に行っているなら、直後の 401 は
       // 「新 token でも API 側が拒否している」= refresh token rotation を
       // 追加消費しても解決しない状況なので、needs_reauth として即返す。
@@ -176,18 +229,34 @@ export async function fetchUsageForAccount(
         const data = await fetchUsage(token, { fetchImpl });
         return { name: account.name, ok: true, refreshed: refreshedThisCall, data };
       } catch (e2) {
+        const status2 = e2?.status ?? null;
+        // refresh 直後にまた 429 → 「新 token でも rate-limited」なので needs_reauth ではなく
+        // rate_limited として返す (rotation は既に 1 回消費してしまったが、以降を止める)
+        if (status2 === 429) {
+          return {
+            name: account.name,
+            ok: false,
+            refreshed: refreshedThisCall,
+            error_kind: "rate_limited",
+            http_status: 429,
+            needs_reauth: false,
+            retry_after_ms: e2?.retryAfterMs ?? null,
+            error: "rate limited after refresh (rotation was wasted)",
+          };
+        }
         return {
           name: account.name,
           ok: false,
           refreshed: refreshedThisCall,
           error_kind: "http_error",
-          http_status: e2?.status ?? null,
+          http_status: status2,
           error: `retry after refresh failed: ${e2.message}`,
         };
       }
     }
-    // proactive refresh 済みで再度 401/403/429 が返ったケースは needs_reauth 扱い
-    const needsReauth = refreshedThisCall && status && REAUTH_STATUS.has(status);
+    // proactive refresh 済みで再度 401/403 が返ったケースは needs_reauth 扱い。
+    // (429 はもう rate_limited 経路で処理されているので、ここに落ちるのは 401/403 のみ)
+    const needsReauth = refreshedThisCall && status && (status === 401 || status === 403);
     return {
       name: account.name,
       ok: false,
@@ -217,6 +286,7 @@ export async function fetchAllUsage(accountsDir) {
       error_kind: r.error_kind,
       http_status: r.http_status ?? null,
       needs_reauth: !!r.needs_reauth,
+      retry_after_ms: r.retry_after_ms ?? null,
       refreshed: r.refreshed,
     };
   });
