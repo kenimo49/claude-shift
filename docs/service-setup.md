@@ -85,7 +85,7 @@ curl -s http://127.0.0.1:19867/usage | head    # API 応答が返ること
 curl -s http://127.0.0.1:19867/config          # {"pollMinutes":N} で意図した間隔か確認
 ```
 
-Chrome 拡張 / Local Web UI からも接続できるはずです。
+Chrome 拡張からも接続できるはずです (Local Web UI は未実装の将来案 — [ROADMAP.md](../ROADMAP.md) 参照)。
 
 ## 更新
 
@@ -124,7 +124,9 @@ sudo loginctl disable-linger "$USER"
 
 ### ポート競合 (`EADDRINUSE`)
 
-別プロセスがすでに 19867 を掴んでいます。§0 の手順で `shift.sh` / `cli/server.js` を両方止めるか、`~/.config/systemd/user/claude-shift.service` の `Environment=CLAUDE_SHIFT_PORT=...` を有効化して別ポートに逃がします。Chrome 拡張 / Local Web UI 側の接続先も合わせて更新してください。
+別プロセスがすでに 19867 を掴んでいます。§0 の手順で `shift.sh` / `cli/server.js` を両方止めるか、`~/.config/systemd/user/claude-shift.service` の `Environment=CLAUDE_SHIFT_PORT=...` を有効化して別ポートに逃がします。
+
+ただし `CLAUDE_SHIFT_PORT` で逃がせるのは API / CLI 利用時のみです。Chrome 拡張は `extension/popup.js` の `SERVER` 定数と `extension/manifest.json` の `host_permissions` が `http://127.0.0.1:19867` 固定のため、拡張を併用する場合は実質 19867 固定になります (どうしても変えたい場合はこの 2 ファイルを書き換えて拡張を再読込)。
 
 ### `journalctl --user -u claude-shift.service` が `No journal files were found` や空を返す
 
