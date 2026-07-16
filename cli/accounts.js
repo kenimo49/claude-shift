@@ -64,15 +64,28 @@ export async function fetchProfile(token) {
   return res.json();
 }
 
-// Anthropic の profile レスポンスを ~/.claude.json.oauthAccount 形式に変換
+// Anthropic の profile レスポンスを ~/.claude.json.oauthAccount 形式に変換。
+// 未マッピングだと writeOAuthAccountToClaudeJson の merge で前アカウントの値が居残るため、
+// アカウント identity に関わるフィールドは (API 応答に無くても) 明示 null で返す。
 export function profileToOAuthAccount(profile) {
   const a = profile.account ?? {};
   const o = profile.organization ?? {};
+  // profile 応答に userRateLimitTier は無い。claude_max org では org tier と一致するので流用。
+  // claude_team 等では別ソースから来るためここでは推測せず null にして stale 値を排除する。
+  const userRateLimitTier =
+    o.organization_type === "claude_max" ? (o.rate_limit_tier ?? null) : null;
   return {
     accountUuid: a.uuid,
     emailAddress: a.email,
+    displayName: a.display_name ?? null,
     organizationUuid: o.uuid,
-    organizationRole: o.role,
+    organizationName: o.name ?? null,
+    organizationType: o.organization_type ?? null,
+    organizationRole: o.role ?? null,
+    organizationRateLimitTier: o.rate_limit_tier ?? null,
+    userRateLimitTier,
+    seatTier: o.seat_tier ?? null,
+    workspaceRole: null,
     hasExtraUsageEnabled: o.has_extra_usage_enabled,
     billingType: o.billing_type,
     accountCreatedAt: a.created_at,
