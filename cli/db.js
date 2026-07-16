@@ -129,6 +129,13 @@ export function saveFailures(usageList, dataDir) {
 
 // account ごとの「最新 snapshot 以降に起きた最新 failure」を返す。
 // 成功した snapshot が failure より新しければその account は clear 扱い (返り値に含まれない)。
+//
+// 同一ミリ秒 (lf.at === ls.at) の場合は snapshot 側を優先し、failure を返さない。
+// これは saveSnapshots → saveFailures の順で同一 refresh サイクル内に呼ばれる設計を
+// 反映したもので、成功と失敗が同時刻タイの場合はユーザー体験として「成功後の失敗」より
+// 「失敗前の成功」を最新として扱う方が UI が混乱しにくい。
+// (同一 account が同一 refresh サイクル内で成功 & 失敗の両方になることは無いので、
+//  この境界が発火するのは別サイクルで運悪く clock が同 ms に揃った時のみ)
 export function getLatestFailuresPerAccount(dataDir) {
   const db = openDb(dataDir);
   const rows = db

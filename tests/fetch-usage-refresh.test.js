@@ -183,6 +183,30 @@ describe("fetchUsageForAccount", () => {
     }
   });
 
+  test("proactive refresh 後の 401 で二重 refresh しない (rotation 消費防止)", async () => {
+    const { tmp, account } = makeAccount({ expiresAt: Date.now() - 1000 });
+    try {
+      let refreshCalls = 0;
+      const refreshImpl = async () => {
+        refreshCalls += 1;
+        return {
+          accessToken: "sk-ant-oat01-R",
+          refreshToken: "sk-ant-ort01-R",
+          expiresAt: Date.now() + 3600 * 1000,
+        };
+      };
+      // proactive refresh 後に fetch が 401 を返す → 二度目 refresh を走らせないのが期待動作
+      const fetchImpl = async () => ({ ok: false, status: 401 });
+      const r = await fetchUsageForAccount(account, { fetchImpl, refreshImpl });
+      assert.equal(r.ok, false);
+      assert.equal(refreshCalls, 1, "refresh は 1 回だけ走るべき");
+      assert.equal(r.needs_reauth, true);
+      assert.equal(r.error_kind, "post_refresh_reauth");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   test("500 系エラーは refresh せずそのまま返す (http_error)", async () => {
     const { tmp, account } = makeAccount();
     try {

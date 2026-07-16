@@ -132,8 +132,11 @@ export async function fetchUsageForAccount(
     return { name: account.name, ok: true, refreshed: refreshedThisCall, data };
   } catch (e) {
     const status = e?.status ?? null;
-    if (status && REAUTH_STATUS.has(status)) {
+    if (status && REAUTH_STATUS.has(status) && !refreshedThisCall) {
       // 401/403/429 → refresh してリトライを 1 回だけ
+      // ただし proactive refresh を既に行っているなら、直後の 401 は
+      // 「新 token でも API 側が拒否している」= refresh token rotation を
+      // 追加消費しても解決しない状況なので、needs_reauth として即返す。
       const r = await tryRefresh(`fetch HTTP ${status}`);
       if (!r.ok) {
         return {
@@ -158,12 +161,15 @@ export async function fetchUsageForAccount(
         };
       }
     }
+    // proactive refresh 済みで再度 401/403/429 が返ったケースは needs_reauth 扱い
+    const needsReauth = refreshedThisCall && status && REAUTH_STATUS.has(status);
     return {
       name: account.name,
       ok: false,
       refreshed: refreshedThisCall,
-      error_kind: "http_error",
+      error_kind: needsReauth ? "post_refresh_reauth" : "http_error",
       http_status: status,
+      needs_reauth: needsReauth,
       error: e.message,
     };
   }
