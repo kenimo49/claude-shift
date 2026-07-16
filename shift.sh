@@ -179,6 +179,15 @@ EOF
   cp "$CREDENTIALS" "$ACCOUNTS_DIR/${name}.json"
   chmod 600 "$ACCOUNTS_DIR/${name}.json"
   echo "Saved as: $ACCOUNTS_DIR/${name}.json"
+
+  # issue #5: identity (accountUuid 等) を profile fetch で埋め込む。
+  # network 断や API 失敗でも add 自体は成功扱い (次回 refresh 時に自動 migration される)。
+  local script_dir
+  script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+  if command -v node >/dev/null 2>&1; then
+    node "$script_dir/cli/accounts.js" --enrich "$name" 2>/dev/null || \
+      echo "  (identity enrich skipped — 次回 refresh 時に自動リトライされます)"
+  fi
 }
 
 rm_account() {

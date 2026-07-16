@@ -14,7 +14,13 @@ import {
   getHistory,
   getAllHistory,
 } from "./db.js";
-import { getActiveAccount, switchAccount } from "./accounts.js";
+import {
+  getActiveAccount,
+  getActiveInfo,
+  switchAccount,
+  getIdentityStatus,
+  listAccounts,
+} from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
 const CONFIG_PATH =
@@ -133,6 +139,13 @@ function buildUsagePayload() {
     ...failures.map((f) => f.account),
   ]);
 
+  // codex-review Medium 対策: identity migration の状態を per-account で載せる。
+  // 失敗しても silent にならないよう、hasUuid=false / lastError を popup 側から見える形に。
+  const accountList = listAccounts();
+  const identityByName = new Map(
+    accountList.map((a) => [a.name, getIdentityStatus(a.path)])
+  );
+
   const accounts = [...accountNames].sort().map((name) => {
     const snap = snapshots.find((s) => s.account === name) ?? {
       account: name,
@@ -146,6 +159,7 @@ function buildUsagePayload() {
     const stale = snap.captured_at == null
       ? true
       : now - snap.captured_at > STALE_THRESHOLD_MS;
+    const idStatus = identityByName.get(name);
     return {
       ...snap,
       stale,
@@ -153,12 +167,19 @@ function buildUsagePayload() {
       last_error: fail?.message ?? null,
       error_kind: fail?.kind ?? null,
       error_at: fail?.at ?? null,
+      identity_missing: idStatus ? !idStatus.hasUuid : false,
+      identity_error: idStatus?.lastError ?? null,
     };
   });
 
+  // issue #5: identity ベース照合。active_method で「uuid/token/なし」を出し、
+  // sync_broken=true は claude CLI と shift の同期が切れていることを popup に伝える。
+  const activeInfo = getActiveInfo();
   return {
     accounts,
-    active: getActiveAccount(),
+    active: activeInfo.name,
+    active_method: activeInfo.method,
+    sync_broken: activeInfo.syncBroken,
     fetched_at: lastFetched || null,
     attempted_at: lastAttempted || null,
     any_stale: accounts.some((a) => a.stale),

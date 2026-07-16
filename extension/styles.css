@@ -113,6 +113,13 @@ main {
   border-color: #3f3f46;
 }
 
+/* issue #5: claude CLI と shift の同期が切れているとき、
+   どのカードが実 active なのか特定できないので全カードを dim する */
+.account-card.sync-broken {
+  border-color: #78350f;
+  opacity: 0.75;
+}
+
 .account-meta {
   display: flex;
   align-items: center;
@@ -155,6 +162,11 @@ main {
   color: #d1d5db;
 }
 
+.status-badge.sync-broken {
+  background: #78350f;
+  color: #fed7aa;
+}
+
 .global-banner {
   background: #7f1d1d;
   color: #fecaca;
@@ -162,6 +174,12 @@ main {
   padding: 7px 14px;
   border-bottom: 1px solid #991b1b;
   line-height: 1.4;
+}
+
+.global-banner > div + div {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(252, 165, 165, 0.25);
 }
 
 .global-banner.hidden { display: none; }

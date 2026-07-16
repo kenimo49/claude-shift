@@ -16,7 +16,7 @@ function renderLimit(title, pct, resetAt) {
     </div>`;
 }
 
-function renderAccount(row, activeName) {
+function renderAccount(row, activeName, syncBroken) {
   const isActive = row.account === activeName;
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
@@ -25,6 +25,10 @@ function renderAccount(row, activeName) {
     : `<button class="switch-btn" data-account="${accountAttr}">切替</button>`;
 
   const statusBadges = [];
+  if (syncBroken) {
+    // issue #5: claude CLI と shift の active identity が特定できない
+    statusBadges.push('<span class="status-badge sync-broken" title="claude CLI と shift のアクティブが特定できません">同期切れ</span>');
+  }
   if (row.needs_reauth) {
     statusBadges.push('<span class="status-badge reauth" title="refresh 失敗。/login で再ログインが必要">再ログイン必要</span>');
   } else if (row.last_error) {
@@ -40,6 +44,7 @@ function renderAccount(row, activeName) {
   const classes = [
     "account-card",
     isActive ? "is-active" : "",
+    syncBroken ? "sync-broken" : "",
     row.needs_reauth ? "needs-reauth" : "",
     row.last_error && !row.needs_reauth ? "has-error" : "",
     row.stale && !row.last_error && !row.needs_reauth ? "is-stale" : "",
@@ -85,14 +90,14 @@ async function load(live = false) {
     const endpoint = live ? `${SERVER}/usage/live` : `${SERVER}/usage`;
     const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { accounts, active, fetched_at, attempted_at, any_needs_reauth } = await res.json();
+    const { accounts, active, fetched_at, attempted_at, any_needs_reauth, sync_broken } = await res.json();
 
     if (!accounts || accounts.length === 0) {
       container.innerHTML = "<p class='empty'>アカウントが見つかりません。<br>~/.claude-shift/accounts/ にcredentialsを追加してください。</p>";
       return;
     }
 
-    container.innerHTML = accounts.map((a) => renderAccount(a, active)).join("");
+    container.innerHTML = accounts.map((a) => renderAccount(a, active, !!sync_broken)).join("");
 
     const ts = document.getElementById("timestamp");
     // 「最終取得」= 全アカウント成功した時刻 (server.js の lastFetched)。
@@ -120,15 +125,25 @@ async function load(live = false) {
       ts.classList.remove("has-error");
     }
 
-    // 再ログインが必要な account が 1 件でもあればヘッダ側にも警告を出す
+    // ヘッダ下の banner に警告メッセージを組み立てる。
+    // - sync_broken (issue #5): claude CLI と shift のアクティブ identity 不一致
+    // - any_needs_reauth: refresh 失敗で再ログインが必要な account が 1 件以上
+    // 両方立つ可能性がある (完全に別問題) ので、独立して積む。
     const banner = document.getElementById("global-banner");
     if (banner) {
+      const messages = [];
+      if (sync_broken) {
+        messages.push("claude CLI と shift のアクティブが特定できません (shift add で再登録)");
+      }
       if (any_needs_reauth) {
-        banner.textContent = "再ログインが必要なアカウントがあります (claude /login → shift add)";
+        messages.push("再ログインが必要なアカウントがあります (claude /login → shift add)");
+      }
+      if (messages.length > 0) {
+        banner.innerHTML = messages.map((m) => `<div>${escapeHtml(m)}</div>`).join("");
         banner.classList.remove("hidden");
       } else {
         banner.classList.add("hidden");
-        banner.textContent = "";
+        banner.innerHTML = "";
       }
     }
   } catch (e) {
