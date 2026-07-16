@@ -13,6 +13,7 @@ import {
   extractAccountUuid,
   writeAccountCreds,
   enrichIdentityForAccount,
+  recordIdentityEnrichError,
 } from "./accounts.js";
 import { refreshOAuthToken } from "./token-refresh.js";
 
@@ -112,14 +113,23 @@ export async function fetchUsageForAccount(
       // issue #5: identity migration
       // account JSON に oauthAccount.accountUuid が未保存なら、新 token を使って
       // profile fetch し埋め込む。既存 accounts の自動 migration 用。
-      // 失敗しても refresh 自体は続行 (best-effort)。
+      // 失敗しても refresh 自体は続行 (best-effort) するが、
+      // codex-review Medium 対策として失敗を account JSON に永続化して下流に露出する
+      // (`_shiftIdentityError`, server.js の buildUsagePayload 経由で popup / debug から見える)。
       try {
         const raw = JSON.parse(_readFileSync(account.path, "utf8"));
         if (!extractAccountUuid(raw)) {
-          await enrichIdentityForAccount(account.path);
+          try {
+            await enrichIdentityForAccount(account.path);
+            // 成功: enrichIdentityForAccount 内で clearIdentityEnrichError 済み
+          } catch (enrichErr) {
+            console.warn(`[fetch-usage] ${account.name}: identity enrich failed: ${enrichErr.message}`);
+            recordIdentityEnrichError(account.path, enrichErr);
+          }
         }
       } catch (e) {
-        console.warn(`[fetch-usage] ${account.name}: identity enrich skipped: ${e.message}`);
+        // account JSON 自体が読めない: これは refresh 中に既に問題が出るはずだが、念のため
+        console.warn(`[fetch-usage] ${account.name}: identity migration check skipped: ${e.message}`);
       }
       return { ok: true };
     } catch (e) {

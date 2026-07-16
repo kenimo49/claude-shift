@@ -10,6 +10,9 @@ import {
   enrichAccountIdentity,
   enrichIdentityForAccount,
   profileToOAuthAccount,
+  recordIdentityEnrichError,
+  clearIdentityEnrichError,
+  getIdentityStatus,
 } from "../cli/accounts.js";
 
 function makeHome({ credentialsToken, claudeJsonUuid, accounts = {} } = {}) {
@@ -91,19 +94,20 @@ describe("getActiveInfo (issue #5)", () => {
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
 
-  test("uuid が unregistered account を指しても token マッチで救われる", () => {
-    // claude CLI 側 uuid だけ更新されて、accounts に該当 uuid が無い状態。
-    // token マッチで拾えるならそっちに落とす (fallback として正常動作)。
+  test("activeUuid あり + accounts に不一致 → syncBroken=true (uuid authoritative)", () => {
+    // codex-review High #5: activeUuid が存在するのに accounts に該当 uuid が無い状態は
+    // 「claude CLI が shift 未登録アカウントで動いている」= 危険な同期切れ。
+    // token マッチが偶然一致しても "healthy" 扱いにしない。
     const { home, accountsDir, credentialsPath, claudeJsonPath } = makeHome({
       credentialsToken: "t-alice",
       claudeJsonUuid: "uuid-UNKNOWN",
       accounts: {
-        alice: { token: "t-alice", uuid: "uuid-A" },
+        alice: { token: "t-alice", uuid: "uuid-A" }, // token は同じでも uuid が違う
       },
     });
     try {
       const info = getActiveInfo(accountsDir, credentialsPath, claudeJsonPath);
-      assert.deepEqual(info, { name: "alice", method: "token", syncBroken: false });
+      assert.deepEqual(info, { name: null, method: null, syncBroken: true });
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
 
@@ -140,6 +144,95 @@ describe("getActiveInfo (issue #5)", () => {
     try {
       const info = getActiveInfo(accountsDir, credentialsPath, claudeJsonPath);
       assert.deepEqual(info, { name: null, method: null, syncBroken: false });
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  // 境界条件 (codex-review Low #4)
+  test("~/.claude.json 破損 → activeUuid 取得できず token fallback", () => {
+    const { home, accountsDir, credentialsPath, claudeJsonPath } = makeHome({
+      credentialsToken: "t-alice",
+      accounts: { alice: { token: "t-alice" } },
+    });
+    // .claude.json を壊す
+    writeFileSync(claudeJsonPath, "{ this is not valid json");
+    try {
+      const info = getActiveInfo(accountsDir, credentialsPath, claudeJsonPath);
+      assert.deepEqual(info, { name: "alice", method: "token", syncBroken: false });
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  test("accountUuid: '' (空文字) は identity 未提供扱い → token fallback", () => {
+    const { home, accountsDir, credentialsPath, claudeJsonPath } = makeHome({
+      credentialsToken: "t-alice",
+      claudeJsonUuid: "", // 空文字
+      accounts: { alice: { token: "t-alice", uuid: "uuid-A" } },
+    });
+    try {
+      const info = getActiveInfo(accountsDir, credentialsPath, claudeJsonPath);
+      // 空文字は truthy チェックで false → activeUuid なし扱い → token fallback で救われる
+      assert.deepEqual(info, { name: "alice", method: "token", syncBroken: false });
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  test("oauthAccount はあるが accountUuid だけ null → null 扱い", () => {
+    const home = mkdtempSync(join(tmpdir(), "cs-idnull-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const claudeJsonPath = join(home, ".claude.json");
+    writeFileSync(
+      claudeJsonPath,
+      JSON.stringify({ oauthAccount: { emailAddress: "x@y", accountUuid: null } })
+    );
+    try {
+      // extractAccountUuid が null を返すことを直接確認
+      const raw = JSON.parse(readFileSync(claudeJsonPath, "utf8"));
+      assert.equal(extractAccountUuid(raw), null);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe("identity enrich error 永続化 (codex-review Medium)", () => {
+  test("recordIdentityEnrichError → getIdentityStatus で lastError が見える", () => {
+    const home = mkdtempSync(join(tmpdir(), "cs-idErr-"));
+    const path = join(home, "acct.json");
+    writeFileSync(path, JSON.stringify({ claudeAiOauth: { accessToken: "t" } }));
+    try {
+      recordIdentityEnrichError(path, new Error("HTTP 500"));
+      const s = getIdentityStatus(path);
+      assert.equal(s.hasUuid, false);
+      assert.equal(s.lastError.message, "HTTP 500");
+      assert.ok(typeof s.lastError.at === "number");
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  test("enrichIdentityForAccount 成功で lastError が自動 clear", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cs-idErrClr-"));
+    const path = join(home, "acct.json");
+    writeFileSync(path, JSON.stringify({ claudeAiOauth: { accessToken: "t" } }));
+    try {
+      // 事前に error を書き込む
+      recordIdentityEnrichError(path, new Error("initial fail"));
+      assert.equal(getIdentityStatus(path).lastError.message, "initial fail");
+      // profile fetch DI で成功させる
+      const fetchProfileImpl = async () => ({
+        account: { uuid: "uuid-A", email: "e@x" },
+        organization: {},
+      });
+      await enrichIdentityForAccount(path, { fetchProfileImpl });
+      const after = getIdentityStatus(path);
+      assert.equal(after.hasUuid, true);
+      assert.equal(after.lastError, null, "成功で clear");
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  test("clearIdentityEnrichError は _shiftIdentityError が無くても no-op", () => {
+    const home = mkdtempSync(join(tmpdir(), "cs-idErrNoop-"));
+    const path = join(home, "acct.json");
+    writeFileSync(path, JSON.stringify({ claudeAiOauth: { accessToken: "t" } }));
+    try {
+      clearIdentityEnrichError(path);
+      // ファイル内容が壊れないことを確認
+      const raw = JSON.parse(readFileSync(path, "utf8"));
+      assert.equal(raw.claudeAiOauth.accessToken, "t");
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });

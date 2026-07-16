@@ -148,11 +148,20 @@ export function listAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {
 //       の identity) と accounts/*.json の oauthAccount.accountUuid を照合する。
 //       token 値は refresh で変わるが uuid は不変なので乖離しない。
 //
+// 判定順序 (uuid authoritative の原則):
+//   1. activeUuid あり + accounts に一致する uuid あり → { method: "uuid" }
+//   2. activeUuid あり + 一致無し → { syncBroken: true } — 意図: claude CLI が
+//      未登録アカウントで動いている状態を token fallback で "healthy" に見せない。
+//      (codex-review High #5 指摘: uuid authoritative の原則を fallback で崩さない)
+//   3. activeUuid 無し (~/.claude.json 未整備 or 破損) → token マッチを試みる。
+//      これは identity source が無い環境向けの fallback で、issue #5 の対策以前と同じ挙動。
+//   4. 上記全て外れ + accounts 登録 1 件以上 → syncBroken=true
+//   5. accounts 登録 0 件 → syncBroken=false (broken にする対象すら無い)
+//
 // 返り値: { name, method, syncBroken }
 //   - name: 解決した account 名 (null なら不明)
-//   - method: "uuid" | "token" | null  (どの経路でマッチしたか)
-//   - syncBroken: true なら claude CLI と shift のどちらも identity を特定できない
-//                 (uuid も token も一致する account が無い、しかし credentials.json は存在する状態)
+//   - method: "uuid" | "token" | null
+//   - syncBroken: true なら claude CLI と shift のアクティブが一致していない
 export function getActiveInfo(
   accountsDir = DEFAULT_ACCOUNTS_DIR,
   credentialsPath = DEFAULT_CREDENTIALS,
@@ -162,16 +171,19 @@ export function getActiveInfo(
   if (!activeToken) return { name: null, method: null, syncBroken: false };
   const activeUuid = extractAccountUuid(readJsonSafe(claudeJsonPath));
   const accounts = listAccounts(accountsDir);
-  // 1. uuid 一致 (最も信頼できる、トークン rotate に耐える)
+
   if (activeUuid) {
+    // uuid authoritative モード: claude CLI が identity を知っているので uuid のみで判定。
     const byUuid = accounts.find((a) => a.uuid === activeUuid);
     if (byUuid) return { name: byUuid.name, method: "uuid", syncBroken: false };
+    // 一致無し → claude CLI が shift 未登録の account で動いている or accounts の
+    // uuid migration が遅れている。いずれも "healthy" に見せてはいけない。
+    return { name: null, method: null, syncBroken: accounts.length > 0 };
   }
-  // 2. token 一致 (uuid 未 migration な既存 accounts 向け fallback)
+
+  // activeUuid 未提供 (~/.claude.json 未整備 / 破損 / 旧 claude CLI): token fallback。
   const byToken = accounts.find((a) => a.token === activeToken);
   if (byToken) return { name: byToken.name, method: "token", syncBroken: false };
-  // 3. 両方外れた: credentials.json はあるが、どの account にも紐付かない。
-  //    accounts 登録が 0 のケースは syncBroken でも何でもないので除外する。
   return { name: null, method: null, syncBroken: accounts.length > 0 };
 }
 
@@ -242,8 +254,15 @@ export function writeOAuthAccountToClaudeJson(newAccount, claudeJsonPath = DEFAU
 // - shift add 直後 or 初回 refresh 時に profile fetch → uuid 等を埋める。
 // - 既存フィールドは preserve (accessToken/refreshToken 等は書き換えない)。
 // - 既に oauthAccount がある場合は merge。
+//
+// race-safety (codex-review Medium): profile fetch は network 呼び出しなので秒〜十秒単位。
+// その間に別プロセス (switchAccount / 手動編集) が同 account JSON を書き換えている可能性が
+// あるため、書き込み直前にもう一度 read して最新状態に oauthAccount だけ merge する。
+// 完全な lock ではないが lost update の window を最小化 (「関数エントリ→書き込み」から
+// 「read→書き込み」に短縮)。
 export function enrichAccountIdentity(accountPath, oauthAccount) {
   if (!existsSync(accountPath)) throw new Error(`account file not found: ${accountPath}`);
+  // 書き込み直前に最新版を読み直す (race window 縮小)
   const raw = JSON.parse(readFileSync(accountPath, "utf8"));
   raw.oauthAccount = { ...(raw.oauthAccount ?? {}), ...oauthAccount };
   writeFileSync(accountPath, JSON.stringify(raw, null, 2));
@@ -260,7 +279,53 @@ export async function enrichIdentityForAccount(accountPath, { fetchProfileImpl =
   if (!token) throw new Error(`account has no accessToken: ${accountPath}`);
   const profile = await fetchProfileImpl(token);
   const oauthAccount = profileToOAuthAccount(profile);
-  return enrichAccountIdentity(accountPath, oauthAccount);
+  const merged = enrichAccountIdentity(accountPath, oauthAccount);
+  // 成功したので以前の enrich エラー記録があれば clear
+  clearIdentityEnrichError(accountPath);
+  return merged;
+}
+
+// identity migration の状態を診断可能な形で account JSON に残す。
+// codex-review Medium (silent fail 対策): fetch-usage 経路の migration 失敗は
+// 従来 warn ログのみで下流に見えなかった。account JSON に `_shiftIdentityError`
+// フィールドとして永続化することで、server 経由で popup / debug に露出できる。
+export function recordIdentityEnrichError(accountPath, error) {
+  if (!existsSync(accountPath)) return;
+  try {
+    const raw = JSON.parse(readFileSync(accountPath, "utf8"));
+    raw._shiftIdentityError = {
+      at: Date.now(),
+      message: String(error?.message ?? error ?? "unknown"),
+    };
+    writeFileSync(accountPath, JSON.stringify(raw, null, 2));
+    try { chmodSync(accountPath, 0o600); } catch {}
+  } catch {
+    // 記録自体が失敗した場合は諦める (元の migration 失敗は上流でログ済み)
+  }
+}
+
+export function clearIdentityEnrichError(accountPath) {
+  if (!existsSync(accountPath)) return;
+  try {
+    const raw = JSON.parse(readFileSync(accountPath, "utf8"));
+    if (!raw._shiftIdentityError) return;
+    delete raw._shiftIdentityError;
+    writeFileSync(accountPath, JSON.stringify(raw, null, 2));
+    try { chmodSync(accountPath, 0o600); } catch {}
+  } catch {
+    // clear 失敗は無害 (次回成功で再度 clear される)
+  }
+}
+
+// server / debug 向けに account の identity 状態を返す。
+//   hasUuid: uuid migration 済みか
+//   lastError: 直近の migration 失敗記録 (成功したら clear されている)
+export function getIdentityStatus(accountPath) {
+  const raw = readJsonSafe(accountPath);
+  return {
+    hasUuid: !!extractAccountUuid(raw),
+    lastError: raw?._shiftIdentityError ?? null,
+  };
 }
 
 export async function switchAccount(
