@@ -66,13 +66,15 @@ systemctl --user daemon-reload
 systemctl --user enable --now claude-shift.service
 ```
 
-ログアウト後も走らせ続けたい場合は linger を有効化します (WSL2 では不要)。既に有効なら sudo は省略できます。
+ログアウト後も走らせ続けるために linger を有効化します。WSL2 でも必須です (無いと `user@<uid>.service` がセッション終了で落ち、enable 済みでも次回 WSL 起動時に unit が発火しません)。既に有効なら sudo は省略できます。
 
 ```bash
 loginctl show-user "$USER" | grep -q 'Linger=yes' \
   && echo 'linger already enabled' \
   || sudo loginctl enable-linger "$USER"
 ```
+
+> WSL2 の場合、Windows 側で `wsl.exe` が全て終了すると WSL VM ごと落ちるため、linger だけでは救えません。WSL 自体を起こし続ける対策は末尾のトラブルシュート「[WSL2 でサービスがログアウト後に止まる](#wsl2-でサービスがログアウト後に止まる)」を参照。
 
 ## 3. 動作確認
 
@@ -146,4 +148,7 @@ journalctl _PID="$(systemctl --user show -p MainPID --value claude-shift.service
 
 ### WSL2 でサービスがログアウト後に止まる
 
-WSL は Windows 側で `wsl.exe` が終了するとユーザーセッションごと落ちるため、systemd の `enable-linger` では救えません。Windows タスクスケジューラで `wsl -d <distro> -u <user> --exec true` を定期実行するなど、WSL 自体を起こし続ける対策とセットで運用します。
+原因は 2 層あり、対策が異なります。
+
+1. **linger 未設定**: `systemd --user` (= `user@<uid>.service`) はログインセッション終了で落ちるため、enable 済みでも次回 WSL 起動時に unit が発火しません。症状は `systemctl --user status claude-shift.service` の `Failed to connect to bus`。§2 の `enable-linger` で解決します。
+2. **WSL VM 自体の終了**: Windows 側で `wsl.exe` が全て終了すると WSL VM ごと落ちるため、こちらは linger では救えません。Windows タスクスケジューラで `wsl -d <distro> -u <user> --exec true` を定期実行するなど、WSL 自体を起こし続ける対策とセットで運用します。
