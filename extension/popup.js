@@ -359,9 +359,64 @@ async function switchAccountUI(name, btn) {
   }
 }
 
+// ---- アカウント名マスキング (共有時用) ----
+//
+// スクリーンショットや画面共有でアカウント名を隠したいとき、ヘッダ 👁 ボタンで on/off。
+// CSS side で filter: blur を掛けるので DOM は元の名前を保持したまま (表示上だけマスク)。
+// 状態は chrome.storage.local に保存し popup 再オープン時も維持。
+// chrome.storage が使えない環境 (テスト等) は localStorage フォールバック。
+const MASK_STORAGE_KEY = "cs_account_name_masked";
+
+function readMaskState() {
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.get([MASK_STORAGE_KEY], (v) => {
+        resolve(!!v[MASK_STORAGE_KEY]);
+      });
+    } else {
+      try { resolve(localStorage.getItem(MASK_STORAGE_KEY) === "1"); }
+      catch { resolve(false); }
+    }
+  });
+}
+
+function writeMaskState(on) {
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    chrome.storage.local.set({ [MASK_STORAGE_KEY]: !!on });
+  } else {
+    try { localStorage.setItem(MASK_STORAGE_KEY, on ? "1" : "0"); } catch {}
+  }
+}
+
+function applyMaskUI(on) {
+  document.body.classList.toggle("is-masked", !!on);
+  const btn = document.getElementById("btn-mask");
+  if (btn) {
+    btn.textContent = on ? "🙈" : "👁";
+    btn.title = on
+      ? "マスキング中: クリックで解除"
+      : "アカウント名をマスキング (共有時用)";
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+
+async function initMask() {
+  const on = await readMaskState();
+  applyMaskUI(on);
+}
+
+async function toggleMask() {
+  const now = document.body.classList.contains("is-masked");
+  const next = !now;
+  applyMaskUI(next);
+  writeMaskState(next);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  initMask();
   load();
   document.getElementById("btn-refresh").addEventListener("click", () => load(true));
+  document.getElementById("btn-mask").addEventListener("click", toggleMask);
   document.getElementById("btn-settings").addEventListener("click", openSettings);
   document.getElementById("btn-analytics").addEventListener("click", openAnalytics);
   document.getElementById("modal-close").addEventListener("click", closeSettings);
