@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { formatCountdown, formatResetClock, renderBar } from "../extension/helpers.js";
+import { formatCountdown, formatResetClock, formatRelativeAgo, renderBar } from "../extension/helpers.js";
 
 // 固定基準時刻でドリフトを排除
 const BASE = new Date("2026-07-15T10:00:00.000Z").getTime();
@@ -106,5 +106,26 @@ describe("renderBar", () => {
 
   test("負値は 0% にクランプ", () => {
     assert.match(renderBar(-5), /width:0%/);
+  });
+});
+
+describe("formatRelativeAgo", () => {
+  test("null は未取得", () => {
+    assert.equal(formatRelativeAgo(null, BASE), "未取得");
+  });
+  test("30 秒前", () => {
+    assert.equal(formatRelativeAgo(BASE - 30 * 1000, BASE), "30秒前");
+  });
+  test("5 分前", () => {
+    assert.equal(formatRelativeAgo(BASE - 5 * 60 * 1000, BASE), "5分前");
+  });
+  test("2 時間前", () => {
+    assert.equal(formatRelativeAgo(BASE - 2 * 3600 * 1000, BASE), "2時間前");
+  });
+  test("2 日前", () => {
+    assert.equal(formatRelativeAgo(BASE - 2 * 86400 * 1000, BASE), "2日前");
+  });
+  test("未来 (clock skew) は 0秒前", () => {
+    assert.equal(formatRelativeAgo(BASE + 1000, BASE), "0秒前");
   });
 });

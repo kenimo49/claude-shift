@@ -26,9 +26,69 @@ export function extractToken(obj) {
   );
 }
 
+export function extractRefreshToken(obj) {
+  return (
+    obj?.claudeAiOauth?.refreshToken ??
+    obj?.refreshToken ??
+    obj?.refresh_token ??
+    null
+  );
+}
+
+export function extractExpiresAt(obj) {
+  const v =
+    obj?.claudeAiOauth?.expiresAt ??
+    obj?.expiresAt ??
+    obj?.expires_at ??
+    null;
+  return v == null ? null : Number(v);
+}
+
 function readJsonSafe(path) {
   if (!existsSync(path)) return null;
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
+}
+
+// refresh 済み token を account JSON (と必要なら active credentials.json) に書き戻す。
+// 既存フィールド (scopes, subscriptionType, rateLimitTier, その他) は保持する。
+export function writeAccountCreds(
+  accountPath,
+  { accessToken, refreshToken, expiresAt },
+  { credentialsPath = DEFAULT_CREDENTIALS, mirrorActive = true } = {}
+) {
+  if (!existsSync(accountPath)) throw new Error(`account file not found: ${accountPath}`);
+  const raw = JSON.parse(readFileSync(accountPath, "utf8"));
+
+  const activeTokenBefore = mirrorActive ? extractToken(readJsonSafe(credentialsPath)) : null;
+  const isActive = activeTokenBefore && activeTokenBefore === extractToken(raw);
+
+  if (raw.claudeAiOauth) {
+    raw.claudeAiOauth = { ...raw.claudeAiOauth, accessToken, refreshToken, expiresAt };
+  } else if ("accessToken" in raw || "refreshToken" in raw || "expiresAt" in raw) {
+    raw.accessToken = accessToken;
+    raw.refreshToken = refreshToken;
+    raw.expiresAt = expiresAt;
+  } else {
+    // 想定外レイアウト: claudeAiOauth 形にラップする (fetch-usage 側と互換)
+    raw.claudeAiOauth = { accessToken, refreshToken, expiresAt };
+  }
+
+  writeFileSync(accountPath, JSON.stringify(raw, null, 2));
+  try { chmodSync(accountPath, 0o600); } catch {}
+
+  // active アカウントの token を refresh した場合、~/.claude/.credentials.json も
+  // 同期しないと switchAccount の sync-back で古い token に上書きされる。
+  if (mirrorActive && isActive) {
+    try {
+      writeFileSync(credentialsPath, readFileSync(accountPath));
+      chmodSync(credentialsPath, 0o600);
+    } catch (e) {
+      // credentials 側は best-effort。account JSON への書き込みは成功済み。
+      return { active: true, mirrorError: e.message };
+    }
+    return { active: true };
+  }
+  return { active: false };
 }
 
 export function listAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {
