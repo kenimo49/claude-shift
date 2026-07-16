@@ -95,7 +95,10 @@ async function load(live = false) {
     container.innerHTML = accounts.map((a) => renderAccount(a, active)).join("");
 
     const ts = document.getElementById("timestamp");
-    // 「最終取得」= 全アカウント成功した時刻。部分失敗中は attempted_at を別表記で出す。
+    // 「最終取得」= 全アカウント成功した時刻 (server.js の lastFetched)。
+    // needs_reauth は「取得失敗」から除外されているので、他 account の取得さえ成功していれば
+    // fetched_at は更新される。真の transient failure が起きている時だけ「試行 / 成功」分岐が出る。
+    // needs_reauth 自体はカード側 badge + any_needs_reauth banner で通知する (issue #7)。
     const fmt = (ms) => {
       const d = new Date(ms);
       return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;

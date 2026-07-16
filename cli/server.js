@@ -58,6 +58,20 @@ let lastAttempted = 0;
 // 走行中に refresh() を再度呼ぶと同じ promise を await して二重実行を防ぐ。
 let refreshInFlight = null;
 
+// issue #7: `needs_reauth` は「再ログインが必要」という恒久的な状態で、次回 poll しても
+// 手動対応 (claude /login → shift add) 無しには自動回復しない。この account を
+// 「一時的な取得失敗」と同じ扱いにすると、healthy な他 account の usage 表示が
+// 「試行 HH:MM (未成功)」のまま居残り、ユーザーに「全部古い」と誤解させる。
+//
+// そこで lastFetched (= UI で「最終取得」に出す信頼できる時刻) を更新して良いか判定する時、
+// needs_reauth は「取得失敗」から除外し、真の transient failure (http_error / refresh_failed /
+// network 断など) だけを見る。needs_reauth は any_needs_reauth バナー + card badge で表現。
+//
+// pure function として export しておくとテストしやすい。
+export function isFullyFetched(usageList) {
+  return usageList.every((u) => !u.error || u.needs_reauth);
+}
+
 async function refresh() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
@@ -68,15 +82,26 @@ async function refresh() {
       cache = data;
       lastAttempted = Date.now();
 
-      const failed = data.filter((u) => u.error);
-      if (failed.length === 0) {
+      const transientFailed = data.filter((u) => u.error && !u.needs_reauth);
+      const reauthFailed = data.filter((u) => u.error && u.needs_reauth);
+      if (transientFailed.length === 0) {
         lastFetched = lastAttempted;
-        console.log(`[${new Date().toISOString()}] fetched ${data.length} accounts`);
+        if (reauthFailed.length === 0) {
+          console.log(`[${new Date().toISOString()}] fetched ${data.length} accounts`);
+        } else {
+          const rnames = reauthFailed.map((f) => f.name).join(", ");
+          console.log(
+            `[${new Date().toISOString()}] fetched ${data.length - reauthFailed.length}/${data.length} accounts (needs_reauth: ${rnames})`
+          );
+        }
       } else {
-        const ok = data.length - failed.length;
-        const fnames = failed.map((f) => `${f.name}(${f.error_kind ?? "err"}${f.http_status ? ` ${f.http_status}` : ""})`).join(", ");
+        const ok = data.length - transientFailed.length - reauthFailed.length;
+        const fnames = transientFailed.map((f) => `${f.name}(${f.error_kind ?? "err"}${f.http_status ? ` ${f.http_status}` : ""})`).join(", ");
+        const reauthNote = reauthFailed.length
+          ? `, needs_reauth: ${reauthFailed.map((f) => f.name).join(", ")}`
+          : "";
         console.error(
-          `[${new Date().toISOString()}] partial fetch: ${ok}/${data.length} ok, failed: ${fnames}`
+          `[${new Date().toISOString()}] partial fetch: ${ok}/${data.length} ok, failed: ${fnames}${reauthNote}`
         );
       }
     } catch (e) {
@@ -248,9 +273,14 @@ const server = createServer(async (req, res) => {
   respond(res, 404, { error: "not found" });
 });
 
-server.listen(PORT, "127.0.0.1", async () => {
-  console.log(`claude-shift server → http://127.0.0.1:${PORT}`);
-  console.log(`polling every ${pollMinutes} minute(s)`);
-  await refresh();
-  reschedulePoll();
-});
+// CLI として直接実行された時のみ listen する。
+// テストが `import { isFullyFetched } from "../cli/server.js"` した際に port を掴んで
+// EADDRINUSE で他テストと衝突するのを防ぐ。
+if (process.argv[1] === new URL(import.meta.url).pathname) {
+  server.listen(PORT, "127.0.0.1", async () => {
+    console.log(`claude-shift server → http://127.0.0.1:${PORT}`);
+    console.log(`polling every ${pollMinutes} minute(s)`);
+    await refresh();
+    reschedulePoll();
+  });
+}
