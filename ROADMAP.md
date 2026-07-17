@@ -9,12 +9,12 @@
 
 ## UI 層の追加候補
 
-現状 UI は Chrome 拡張のみですが、実装は `fetch('http://localhost:19867/*')` + SVG 描画で完結しているので、他の UI 層にゼロコストに近いコストで移植できます。
+現状 UI は Chrome 拡張のみですが、実装は `fetch('http://127.0.0.1:19867/*')` + SVG 描画で完結しているので、他の UI 層にゼロコストに近いコストで移植できます。
 
 ### A. Local Web UI (最短)
 
 - `shift server` の `/` route で `web/index.html` を配信、`/assets/*` で静的ファイル
-- ユーザーは `http://localhost:19867/` をブラウザで開くだけ
+- ユーザーは `http://127.0.0.1:19867/` をブラウザで開くだけ
 - 既存 `extension/popup.{html,js,css}` をほぼ 100% 流用可能
 - **メリット**: Chrome/Firefox/Safari どこでも動く、拡張 install 不要、Chrome 拡張と並存できる
 - **実装コスト**: 30 分程度 (server.js に静的配信 route 10 行追加 + ファイル移動)
