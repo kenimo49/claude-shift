@@ -35,7 +35,8 @@ sync-back（切替時に最新トークンを `~/.claude-shift/accounts/<name>.j
 
 | 案 | 内容 | トレードオフ |
 |---|---|---|
-| **片方を `claude setup-token` にする（推奨、shift 対応済み）** | 1年有効の長期トークン（refresh なし）を発行して使う。ローテーションが起きないので競合しない | 1年後に手動再発行（`shift list` が残30日で警告）。Remote Control 等の一部機能は使えない |
+| **片方を `claude setup-token` にする（推奨、shift 対応済み）** | 1年有効の長期トークン（refresh なし）を発行して使う。ローテーションが起きないので競合しない。`shift use-token <name>` でマシンの既定にできる | 1年後に手動再発行（`shift list` が残30日で警告）。Remote Control 等の一部機能は使えない |
+| **観測を1台に寄せる（推奨、shift 対応済み）** | usage ポーリングも refresh を消費するので、login を所有しないマシンでは `shift observe <name> off` で観測から除外する。実行の setup-token 化とセットで rotation 競合経路がゼロになる | 除外したマシンではそのアカウントの usage が見えない（「観測対象外」表示） |
 | アカウントをマシン単位で分ける | マシンごとに専用アカウントを割り当てる | 確実だが、アカウント数がマシン数に縛られる |
 | 現状維持 | 失効した側で毎日再ログイン | 手間が毎日発生。/login 上書き事故（[account-setup.md](../account-setup.md) 参照）のリスクも毎日踏む |
 

@@ -59,6 +59,8 @@ grep -E 'ExecStart|WorkingDirectory|Environment=' ~/.config/systemd/user/claude-
 
 > **pollMinutes の優先順位**: server.js は `CLI引数 (--interval)` > `環境変数 (CLAUDE_SHIFT_POLL_MINUTES)` > `~/.claude-shift/config.json` の `pollMinutes` > デフォルト 10 分、の順で解決します。unit で `Environment=` を明示しておくと保存済み設定が古くても意図した間隔で動くので確実です。
 
+> **複数マシンで server を常駐させる場合**: usage ポーリングは login credentials の refresh を消費するため、同じアカウントを2台の server が観測すると refresh rotation 競合（毎日ログアウト問題）が起きます。login を所有していないマシンでは、常駐化の前に `./shift.sh observe <name> off` で該当アカウントを観測から外してください。詳細は [setup-token-guide.md](setup-token-guide.md) §4 と [knowledge/multi-device-token-conflict.md](knowledge/multi-device-token-conflict.md)。
+
 ## 2. 起動
 
 ```bash
