@@ -356,6 +356,7 @@ export async function switchAccount(
     credentialsPath = DEFAULT_CREDENTIALS,
     claudeJsonPath = DEFAULT_CLAUDE_JSON,
     skipProfileFetch = false,
+    fetchProfileImpl = fetchProfile,
   } = {}
 ) {
   const target = join(accountsDir, `${name}.json`);
@@ -394,8 +395,12 @@ export async function switchAccount(
     try {
       const token = extractToken(readJsonSafe(target));
       if (token) {
-        const profile = await fetchProfile(token);
-        writeOAuthAccountToClaudeJson(profileToOAuthAccount(profile), claudeJsonPath);
+        const profile = await fetchProfileImpl(token);
+        const oauthAccount = profileToOAuthAccount(profile);
+        writeOAuthAccountToClaudeJson(oauthAccount, claudeJsonPath);
+        // account 側にも identity を書き戻す。usage ポーリングの enrich に頼ると
+        // pollExclude 環境で uuid が埋まらず getActiveInfo が syncBroken になる。
+        enrichAccountIdentity(target, oauthAccount);
       }
     } catch (e) {
       console.error(`[switchAccount] oauthAccount update failed: ${e.message}`);

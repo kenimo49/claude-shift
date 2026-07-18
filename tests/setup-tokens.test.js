@@ -13,6 +13,7 @@ import {
   toCredentialsPayload,
   mergeCredentialsIntoAccount,
   switchAccount,
+  getActiveInfo,
 } from "../cli/accounts.js";
 import { saveSetupTokenIssuance, getLatestSetupTokenIssuances } from "../cli/db.js";
 import { loadAccounts, fetchUsageForAccount } from "../cli/fetch-usage.js";
@@ -174,6 +175,47 @@ describe("accounts: setupToken 保持", () => {
       const creds = JSON.parse(readFileSync(credentialsPath, "utf8"));
       assert.equal(creds.claudeAiOauth.accessToken, "to-TOKEN");
       assert.equal("setupToken" in creds, false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("switchAccount: profile 取得成功時に切替先 account へ identity を書き戻す (pollExclude 環境の syncBroken 回避)", async () => {
+    const dir = tmpDir("cs-sw-");
+    try {
+      const accountsDir = join(dir, "accounts");
+      const credentialsPath = join(dir, ".credentials.json");
+      const claudeJsonPath = join(dir, ".claude.json");
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(accountsDir, { recursive: true });
+
+      writeFileSync(
+        join(accountsDir, "to.json"),
+        JSON.stringify({ claudeAiOauth: { accessToken: "to-TOKEN" } })
+      );
+      writeFileSync(claudeJsonPath, JSON.stringify({}));
+
+      const stubProfile = {
+        account: { uuid: "uuid-to", email: "to@example.com" },
+        organization: { uuid: "org-to", organization_type: "claude_max" },
+      };
+      await switchAccount("to", {
+        accountsDir,
+        credentialsPath,
+        claudeJsonPath,
+        fetchProfileImpl: async () => stubProfile,
+      });
+
+      // 切替先 account JSON にも identity が入る (usage ポーリング enrich に依存しない)
+      const to = JSON.parse(readFileSync(join(accountsDir, "to.json"), "utf8"));
+      assert.equal(to.oauthAccount.accountUuid, "uuid-to");
+      // ~/.claude.json 側も更新され、uuid authoritative 照合で active 解決できる
+      const cj = JSON.parse(readFileSync(claudeJsonPath, "utf8"));
+      assert.equal(cj.oauthAccount.accountUuid, "uuid-to");
+      const info = getActiveInfo(accountsDir, credentialsPath, claudeJsonPath);
+      assert.equal(info.name, "to");
+      assert.equal(info.method, "uuid");
+      assert.equal(info.syncBroken, false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

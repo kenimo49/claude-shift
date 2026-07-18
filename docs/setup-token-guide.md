@@ -178,6 +178,7 @@ claude setup-token
 | `usage` で `setup_token_expired` | 1年期限切れ。§5 の再発行 |
 | identity の email が期待と違う | ブラウザのアカウント選択ミス。正しいアカウントで再発行して `add-token` 上書き |
 | `claude` が token を使ってくれない | `--bare` モードは env token を読まない。`ANTHROPIC_API_KEY` が設定されていないかも確認 |
+| 切替後に「claude CLI と shift のアクティブが特定できません」 | account JSON に identity (uuid) が未登録。通常は usage ポーリングが埋めるが、`observe off` のマシンでは埋まらない。`node cli/accounts.js --enrich <name>` で修復（切替時の自動書き戻しは実装済みなので再発しない） |
 | それでも毎日ログアウトする | ログアウトするマシンがまだ /login 運用のはず。§4 の割り当てを見直す |
 
 ## 関連
