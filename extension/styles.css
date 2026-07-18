@@ -172,6 +172,34 @@ main {
   color: #fde68a;
 }
 
+.status-badge.excluded {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+
+.account-card.is-excluded {
+  opacity: 0.65;
+}
+
+.observe-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.observe-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.observe-item input {
+  accent-color: #93c5fd;
+}
+
 .global-banner {
   background: #7f1d1d;
   color: #fecaca;

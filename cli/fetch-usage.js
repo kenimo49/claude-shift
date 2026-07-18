@@ -16,6 +16,7 @@ import {
   recordIdentityEnrichError,
 } from "./accounts.js";
 import { extractSetupToken, extractSetupTokenExpiresAt } from "./tokens.js";
+import { getPollExclude } from "./config.js";
 import { refreshOAuthToken } from "./token-refresh.js";
 
 const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
@@ -356,12 +357,20 @@ export async function fetchUsageForAccount(
 
 // 全アカウント一括取得。返り値は per-account の結果配列。
 // 従来コード互換のため、成功時は { name, ...data } を、失敗時は { name, error, ... } を返す。
-export async function fetchAllUsage(accountsDir) {
+//
+// pollExclude: 別マシンが login grant を所有しているアカウントは観測しない
+// (このマシンから refresh を走らせると所有マシン側の rotation を殺すため)。
+// 除外アカウントは fetch もエラー記録もせず excluded: true だけ返す。
+export async function fetchAllUsage(accountsDir, { pollExclude } = {}) {
+  const exclude = new Set(pollExclude ?? getPollExclude());
   const accounts = loadAccounts(accountsDir);
+  const excluded = accounts
+    .filter((a) => exclude.has(a.name))
+    .map((a) => ({ name: a.name, excluded: true, via: "excluded" }));
   const results = await Promise.all(
-    accounts.map((a) => fetchUsageForAccount(a))
+    accounts.filter((a) => !exclude.has(a.name)).map((a) => fetchUsageForAccount(a))
   );
-  return results.map((r) => {
+  const mapped = results.map((r) => {
     if (r.ok) {
       return { name: r.name, refreshed: r.refreshed, via: r.via ?? "login", ...r.data };
     }
@@ -376,6 +385,8 @@ export async function fetchAllUsage(accountsDir) {
       via: r.via ?? "login",
     };
   });
+  // 表示順を loadAccounts 順 (=ファイル名順) に保つため name でソートして返す
+  return [...mapped, ...excluded].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // CLI として直接実行した場合

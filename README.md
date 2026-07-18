@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-144%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen.svg)](tests/)
 
 複数の Claude Code アカウントを 1 台のマシンで切り替え・観測するツール。CLI + ローカル API サーバー + Chrome 拡張の 3 層構成です。
 
@@ -76,6 +76,8 @@ chmod +x shift.sh
 | `./shift.sh add-token <name>` | `claude setup-token` で発行した 1 年トークンを `<name>` に登録 (login と併存可)。発行時期・期限は SQLite に記録 |
 | `./shift.sh token <name>` | 登録済み setup-token の値を出力 (`CLAUDE_CODE_OAUTH_TOKEN=$(./shift.sh token x) claude -p ...`) |
 | `./shift.sh env <name>` | `export CLAUDE_CODE_OAUTH_TOKEN=...` を出力 (`eval "$(./shift.sh env x)"` でシェルに適用) |
+| `./shift.sh use-token <name>` | setup-token をこのマシンの既定にする。`~/.claude-shift/env.sh` に書き出し、`.bashrc` から source すれば新しいシェル全部が token で動く。`use` で login モードに戻すと自動解除 |
+| `./shift.sh observe [<name> on\|off]` | usage 観測の対象/対象外を切替。login を別マシンが所有するアカウントを `off` にすると、このマシンのポーリングが refresh rotation を消費しなくなる。引数無しで現状表示 |
 | `./shift.sh rm <name>` | 登録削除。active 削除は `-f` 必要 |
 | `./shift.sh server [--interval N]` | ローカル API サーバ (127.0.0.1:19867) 起動 |
 
@@ -84,15 +86,17 @@ chmod +x shift.sh
 同一アカウントを複数マシンで `/login` すると、refresh token のローテーション競合で片方が毎日ログアウトされます ([docs/knowledge/multi-device-token-conflict.md](docs/knowledge/multi-device-token-conflict.md))。`claude setup-token` の 1 年トークン (refresh なし) を `add-token` で登録すると:
 
 - **inference 専用スコープ**: setup-token は claude の実行 (モデルリクエスト) にのみ使えます。usage / profile API は拒否される (実測 403/429) ため、usage 観測は従来どおり login credentials で行われます (token-only アカウントのみ setup-token で試行し、状態を可視化)
-- **login と併存**: 同じアカウント名に `[login+token]` の両方式を持てます。`use` は login、環境変数利用は `env` / `token`
+- **login と併存**: 同じアカウント名に `[login+token]` の両方式を持てます。`use` は login、環境変数利用は `env` / `token`、マシン既定にするなら `use-token`
 - **期限管理**: 発行時期・期限を SQLite (`setup_tokens` テーブル) に記録し、`list` が残 30 日を切ると再発行を促します
+- **観測の一本化**: usage ポーリング自体も login credentials の refresh を消費するため、複数マシンで claude-shift を動かす場合は「アカウントの login を所有する 1 台」だけが観測します。他マシンでは `observe <name> off` で除外 (popup ⚙ 設定からも変更可)。除外アカウントは list / popup に「観測対象外」と表示されます
 
 ```bash
-# ken のマシン: 通常どおり /login
+# ken のマシン: 通常どおり /login (このマシンが login を所有 = 観測もここ)
 # サブマシン / cron: setup-token で運用
 claude setup-token                     # ブラウザ認可 → token が表示される
 ./shift.sh add-token my-account-a      # 貼り付けて登録 (入力は非表示)
-eval "$(./shift.sh env my-account-a)"  # このシェルの claude が token で動く
+./shift.sh use-token my-account-a      # このマシンの既定を token にする (~/.claude-shift/env.sh)
+./shift.sh observe my-account-a off    # 観測はメインマシンに任せる (rotation 競合ゼロ化)
 ```
 
 ## API エンドポイント (127.0.0.1:19867)
@@ -112,7 +116,7 @@ eval "$(./shift.sh env my-account-a)"  # このシェルの claude が token で
 
 - 全アカウントの 5 時間枠 + 週次バー + リセット時刻
 - Active アカウントの「使用中」バッジ、他アカウントは「切替」ボタン (裏で `shift use` を実行)
-- ⚙ 設定モーダル: ポーリング間隔を popup から即変更 (`~/.claude-shift/config.json` に永続化)
+- ⚙ 設定モーダル: ポーリング間隔と usage 観測対象 (アカウントごとの on/off) を popup から即変更 (`~/.claude-shift/config.json` に永続化)
 - 📊 分析モーダル: 6h / 24h / 7d の 3 アカウント横断 SVG 折れ線グラフ
 
 ## Troubleshooting

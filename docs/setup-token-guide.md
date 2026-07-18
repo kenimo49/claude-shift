@@ -90,7 +90,21 @@ CLAUDE_CODE_OAUTH_TOKEN=$(./shift.sh token <name>) claude -p "ok"
 
 ## 3. 日常の使い方
 
-### 対話セッションを setup-token で動かす（サブマシン側）
+### マシンの既定を token にする（サブマシン側の常用、推奨）
+
+```bash
+./shift.sh use-token <name>
+# → ~/.claude-shift/env.sh に export 行を書き出す
+# → 案内に従って ~/.bashrc に source 行を1回だけ追記する:
+#    [ -f ~/.claude-shift/env.sh ] && source ~/.claude-shift/env.sh
+```
+
+以降、新しいシェルの claude は全部 token で動く。アカウントを替えるときは
+`use-token <別name>` を打ち直すだけ（`.bashrc` は触らない）。
+login モードに戻すと (`./shift.sh use <name>`) env.sh は自動削除される
+（既に開いているシェルでは `unset CLAUDE_CODE_OAUTH_TOKEN`）。
+
+### 単発でシェルに適用する
 
 ```bash
 eval "$(./shift.sh env <name>)"   # このシェルの claude が token で動く
@@ -98,7 +112,7 @@ claude
 ```
 
 `CLAUDE_CODE_OAUTH_TOKEN` が設定されている間は credentials.json より優先される。
-シェルを閉じれば消える。常用するなら `~/.bashrc` に `eval` 行を書く。
+シェルを閉じれば消える。
 
 ### cron / スクリプトの単発実行
 
@@ -109,7 +123,8 @@ CLAUDE_CODE_OAUTH_TOKEN=$(./shift.sh token <name>) claude -p "..."
 ### アカウント切替
 
 - login 系のまま使う → 従来どおり `./shift.sh use <name>`
-- token で切替 → `eval "$(./shift.sh env <別name>)"` を打ち直すだけ（ファイル書き換え無し、プロセス再起動は必要）
+- token で切替 → `./shift.sh use-token <別name>`（新しいシェルから有効）、または
+  `eval "$(./shift.sh env <別name>)"`（今のシェルだけ。プロセス再起動は必要）
 
 ### やってはいけないこと
 
@@ -122,16 +137,23 @@ CLAUDE_CODE_OAUTH_TOKEN=$(./shift.sh token <name>) claude -p "..."
 
 ## 4. マシン割り当ての考え方
 
-同一アカウントの **login (/login) を2台以上で使わない** のが原則。
+原則は2つ:
 
-| マシン | 認証 | 理由 |
+1. **実行**: 同一アカウントの login (/login) を2台以上で使わない。サブマシンは setup-token
+2. **観測**: usage ポーリング（`shift server` / `shift usage`）も login credentials の refresh を
+   消費するので、**アカウントごとに login を所有する1台だけ** が観測する
+
+| マシン | 実行 | 観測 |
 |---|---|---|
-| ken のメインPC | /login（従来どおり） | 対話メイン。Remote Control 等のフル機能 |
-| サブマシン / Iris | setup-token（env 経由） | rotation を持たないので何台で使っても競合しない |
-| cron / headless | setup-token（token 経由） | 同上。`shift server` の usage 観測も setup-token 優先で動く |
+| ken のメインPC | /login（従来どおり。Remote Control 等のフル機能） | 自分が login を所有するアカウントのみ |
+| サブマシン / Iris | setup-token（`use-token` で既定化） | 他マシン所有のアカウントは `observe <name> off` で除外 |
+| cron / headless | setup-token（`token` 経由の単発） | 観測しない |
 
-setup-token はモデルリクエスト専用（Remote Control・クラウドコネクタ不可）なので、
-フル機能が要る側を /login に割り当てる。
+- `observe <name> off` は `~/.claude-shift/config.json` の `pollExclude` に入り、
+  server のポーリングと `shift usage` の両方から外れる（Chrome 拡張 ⚙ 設定からも変更可）
+- 除外アカウントは `list` と popup に「観測対象外」と表示される
+- setup-token はモデルリクエスト専用（Remote Control・クラウドコネクタ不可）なので、
+  フル機能が要る側を /login に割り当てる
 
 ## 5. 再発行（1年後 / 期限警告が出たら）
 

@@ -29,7 +29,10 @@ function renderAccount(row, activeName, syncBroken) {
     // issue #5: claude CLI と shift の active identity が特定できない
     statusBadges.push('<span class="status-badge sync-broken" title="claude CLI と shift のアクティブが特定できません">同期切れ</span>');
   }
-  if (row.needs_reauth) {
+  if (row.excluded) {
+    // pollExclude: このマシンでは観測しない (server 側で stale / エラーは抑制済み)
+    statusBadges.push('<span class="status-badge excluded" title="このマシンでは usage を取得しません。login を所有する別マシン側で観測します (⚙ 設定で変更)">観測対象外</span>');
+  } else if (row.needs_reauth) {
     statusBadges.push('<span class="status-badge reauth" title="refresh 失敗。/login で再ログインが必要">再ログイン必要</span>');
   } else if (row.error_kind === "rate_limited") {
     // issue #6: 429 で token 健全なケース。refresh してもすぐには回復しないので badge で明示。
@@ -48,6 +51,7 @@ function renderAccount(row, activeName, syncBroken) {
     "account-card",
     isActive ? "is-active" : "",
     syncBroken ? "sync-broken" : "",
+    row.excluded ? "is-excluded" : "",
     row.needs_reauth ? "needs-reauth" : "",
     row.last_error && !row.needs_reauth ? "has-error" : "",
     row.stale && !row.last_error && !row.needs_reauth ? "is-stale" : "",
@@ -163,22 +167,44 @@ async function load(live = false) {
 async function openSettings() {
   const modal = document.getElementById("modal");
   const input = document.getElementById("poll-minutes");
+  const observeList = document.getElementById("observe-list");
   const msg = document.getElementById("modal-msg");
   msg.textContent = "";
   msg.className = "modal-msg";
 
   input.value = "";
   input.placeholder = "取得中...";
+  observeList.innerHTML = "<span class='field-hint'>取得中...</span>";
   modal.classList.remove("hidden");
   input.focus();
 
   try {
-    const res = await fetch(`${SERVER}/config`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const cfg = await res.json();
+    const [cfgRes, usageRes] = await Promise.all([
+      fetch(`${SERVER}/config`),
+      fetch(`${SERVER}/usage`),
+    ]);
+    if (!cfgRes.ok) throw new Error(`HTTP ${cfgRes.status}`);
+    if (!usageRes.ok) throw new Error(`HTTP ${usageRes.status}`);
+    const cfg = await cfgRes.json();
+    const usage = await usageRes.json();
     input.value = cfg.pollMinutes;
     input.placeholder = "";
+
+    const excluded = new Set(cfg.pollExclude ?? []);
+    const names = (usage.accounts ?? []).map((a) => a.account).sort();
+    if (names.length === 0) {
+      observeList.innerHTML = "<span class='field-hint'>アカウントがありません</span>";
+    } else {
+      // checked = 観測する (= pollExclude に入っていない)
+      observeList.innerHTML = names.map((name) => `
+        <label class="observe-item">
+          <input type="checkbox" data-observe-account="${escapeAttr(name)}"
+                 ${excluded.has(name) ? "" : "checked"} />
+          <span class="account-name">${escapeHtml(name)}</span>
+        </label>`).join("");
+    }
   } catch (e) {
+    observeList.innerHTML = "";
     msg.textContent = `現在の設定を取得できません: ${e.message}`;
     msg.className = "modal-msg error";
   }
@@ -205,16 +231,26 @@ async function saveSettings() {
   msg.textContent = "";
   msg.className = "modal-msg";
 
+  // チェック無し = 観測しない = pollExclude 入り
+  const pollExclude = [...document.querySelectorAll("[data-observe-account]")]
+    .filter((cb) => !cb.checked)
+    .map((cb) => cb.dataset.observeAccount);
+
   try {
     const res = await fetch(`${SERVER}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pollMinutes: v }),
+      body: JSON.stringify({ pollMinutes: v, pollExclude }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-    msg.textContent = `保存しました (${data.pollMinutes} 分間隔)`;
+    const excludeNote = (data.pollExclude ?? []).length
+      ? `、観測対象外: ${data.pollExclude.join(", ")}`
+      : "";
+    msg.textContent = `保存しました (${data.pollMinutes} 分間隔${excludeNote})`;
     msg.className = "modal-msg ok";
+    // 観測対象の変更をカード表示 (観測対象外 badge) に反映
+    load();
     setTimeout(closeSettings, 800);
   } catch (e) {
     msg.textContent = `保存に失敗: ${e.message}`;

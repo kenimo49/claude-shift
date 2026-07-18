@@ -2,10 +2,8 @@
 // localhost:PORT で usage データを提供するローカル API サーバー
 
 import { createServer } from "http";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
-import { homedir } from "os";
 import { fetchAllUsage } from "./fetch-usage.js";
+import { loadConfig, saveConfig, getPollExclude } from "./config.js";
 import {
   saveSnapshots,
   saveFailures,
@@ -23,19 +21,6 @@ import {
 } from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
-const CONFIG_PATH =
-  process.env.CLAUDE_SHIFT_CONFIG_PATH ??
-  join(homedir(), ".claude-shift", "config.json");
-
-function loadConfig() {
-  if (!existsSync(CONFIG_PATH)) return {};
-  try { return JSON.parse(readFileSync(CONFIG_PATH, "utf8")); } catch { return {}; }
-}
-
-function saveConfig(cfg) {
-  mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
-}
 
 // ポーリング間隔（分）: CLI引数 > 環境変数 > 保存済み設定 > デフォルト10分
 function initialIntervalMinutes() {
@@ -133,18 +118,25 @@ function buildUsagePayload() {
   const failures = getLatestFailuresPerAccount();
   const failureByAccount = new Map(failures.map((f) => [f.account, f]));
 
-  // snapshot がまだ 1 度も無い account (登録直後 or ずっと失敗) も UI に出す
-  const accountNames = new Set([
-    ...snapshots.map((s) => s.account),
-    ...failures.map((f) => f.account),
-  ]);
-
   // codex-review Medium 対策: identity migration の状態を per-account で載せる。
   // 失敗しても silent にならないよう、hasUuid=false / lastError を popup 側から見える形に。
   const accountList = listAccounts();
   const identityByName = new Map(
     accountList.map((a) => [a.name, getIdentityStatus(a.path)])
   );
+
+  // pollExclude: 別マシンが観測を担当しているアカウント。
+  // 登録済みの名前だけ有効 (typo や削除済みアカウントの残骸は無視)
+  const registered = new Set(accountList.map((a) => a.name));
+  const excludeSet = new Set(getPollExclude().filter((n) => registered.has(n)));
+
+  // snapshot がまだ 1 度も無い account (登録直後 or ずっと失敗) も UI に出す。
+  // excluded は snapshot が今後増えないので、登録名から必ず出す
+  const accountNames = new Set([
+    ...snapshots.map((s) => s.account),
+    ...failures.map((f) => f.account),
+    ...excludeSet,
+  ]);
 
   const accounts = [...accountNames].sort().map((name) => {
     const snap = snapshots.find((s) => s.account === name) ?? {
@@ -156,17 +148,22 @@ function buildUsagePayload() {
       weekly_reset_at: null,
     };
     const fail = failureByAccount.get(name);
-    const stale = snap.captured_at == null
-      ? true
-      : now - snap.captured_at > STALE_THRESHOLD_MS;
+    const excluded = excludeSet.has(name);
+    const stale = excluded
+      ? false // 観測対象外: このマシンでは更新されないのが正常なので stale 扱いしない
+      : snap.captured_at == null
+        ? true
+        : now - snap.captured_at > STALE_THRESHOLD_MS;
     const idStatus = identityByName.get(name);
     return {
       ...snap,
       stale,
-      needs_reauth: fail ? !!fail.needs_reauth : false,
-      last_error: fail?.message ?? null,
-      error_kind: fail?.kind ?? null,
-      error_at: fail?.at ?? null,
+      excluded,
+      // 除外中は過去の failure 残骸で「再ログイン必要」等を出さない (観測は別マシンの責務)
+      needs_reauth: !excluded && fail ? !!fail.needs_reauth : false,
+      last_error: excluded ? null : fail?.message ?? null,
+      error_kind: excluded ? null : fail?.kind ?? null,
+      error_at: excluded ? null : fail?.at ?? null,
       identity_missing: idStatus ? !idStatus.hasUuid : false,
       identity_error: idStatus?.lastError ?? null,
     };
@@ -267,23 +264,50 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/config") {
     if (req.method === "GET") {
-      respond(res, 200, { pollMinutes });
+      respond(res, 200, { pollMinutes, pollExclude: getPollExclude() });
       return;
     }
     if (req.method === "POST") {
       try {
         const body = await readBody(req);
-        const { pollMinutes: newVal } = JSON.parse(body || "{}");
-        const v = typeof newVal === "number" ? newVal : parseFloat(newVal);
-        if (!(v > 0)) {
-          respond(res, 400, { error: "pollMinutes must be a positive number (minutes)" });
+        const parsed = JSON.parse(body || "{}");
+        const partial = {};
+
+        if ("pollMinutes" in parsed) {
+          const v = typeof parsed.pollMinutes === "number"
+            ? parsed.pollMinutes
+            : parseFloat(parsed.pollMinutes);
+          if (!(v > 0)) {
+            respond(res, 400, { error: "pollMinutes must be a positive number (minutes)" });
+            return;
+          }
+          partial.pollMinutes = v;
+        }
+
+        if ("pollExclude" in parsed) {
+          const list = parsed.pollExclude;
+          if (!Array.isArray(list) || list.some((n) => typeof n !== "string" || !n)) {
+            respond(res, 400, { error: "pollExclude must be an array of account names" });
+            return;
+          }
+          partial.pollExclude = [...new Set(list)].sort();
+        }
+
+        if (Object.keys(partial).length === 0) {
+          respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude)" });
           return;
         }
-        pollMinutes = v;
-        saveConfig({ pollMinutes });
-        reschedulePoll();
-        console.log(`[config] pollMinutes → ${pollMinutes}`);
-        respond(res, 200, { pollMinutes });
+
+        saveConfig(partial);
+        if ("pollMinutes" in partial) {
+          pollMinutes = partial.pollMinutes;
+          reschedulePoll();
+          console.log(`[config] pollMinutes → ${pollMinutes}`);
+        }
+        if ("pollExclude" in partial) {
+          console.log(`[config] pollExclude → [${partial.pollExclude.join(", ")}]`);
+        }
+        respond(res, 200, { pollMinutes, pollExclude: getPollExclude() });
       } catch (e) {
         respond(res, 400, { error: "invalid JSON body" });
       }

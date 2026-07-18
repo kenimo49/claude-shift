@@ -4,6 +4,8 @@ set -euo pipefail
 
 ACCOUNTS_DIR="${HOME}/.claude-shift/accounts"
 CREDENTIALS="${HOME}/.claude/.credentials.json"
+ENV_FILE="${HOME}/.claude-shift/env.sh"
+CONFIG_FILE="${HOME}/.claude-shift/config.json"
 
 usage() {
   cat <<EOF
@@ -12,7 +14,11 @@ Usage: shift <command> [args]
 Commands:
   list              全アカウント一覧 (認証方式 [login]/[token] と token 期限を表示)
   use <name>        アカウントを切り替える (login 系のみ。token-only は env を使う)
-  usage             全アカウントの使用状況を表示
+  use-token <name>  setup-token を既定にする (~/.claude-shift/env.sh へ書き出し)
+  observe [<name> on|off]
+                    usage 観測の対象/対象外を切替 (別マシンが login を所有する
+                    アカウントは off にして rotation 競合を防ぐ)。引数無しで現状表示
+  usage             全アカウントの使用状況を表示 (観測対象外は skip)
   seed <name>       5時間ウィンドウを今から起動する（軽量タスク実行）
   server [--interval <min>]
                     localhost API サーバーを起動 (デフォルト10分間隔)
@@ -70,12 +76,32 @@ except: print('')
 
 list_accounts() {
   mkdir -p "$ACCOUNTS_DIR"
-  ACCOUNTS_DIR="$ACCOUNTS_DIR" CREDENTIALS="$CREDENTIALS" python3 <<'PYEOF'
-import json, os, glob, time
+  ACCOUNTS_DIR="$ACCOUNTS_DIR" CREDENTIALS="$CREDENTIALS" \
+  ENV_FILE="$ENV_FILE" CONFIG_FILE="$CONFIG_FILE" python3 <<'PYEOF'
+import json, os, glob, time, re
 
 accounts_dir = os.environ["ACCOUNTS_DIR"]
 credentials = os.environ["CREDENTIALS"]
 env_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+# use-token で書き出した env.sh (pinned token)。source 前でも list に反映する
+pinned_token = ""
+try:
+    with open(os.environ["ENV_FILE"]) as f:
+        m = re.search(r"CLAUDE_CODE_OAUTH_TOKEN=(\S+)", f.read())
+        if m: pinned_token = m.group(1)
+except Exception:
+    pass
+
+# 観測対象外 (pollExclude) — 別マシンが login を所有しているアカウント
+poll_exclude = set()
+try:
+    with open(os.environ["CONFIG_FILE"]) as f:
+        raw = json.load(f).get("pollExclude", [])
+        if isinstance(raw, list):
+            poll_exclude = {n for n in raw if isinstance(n, str)}
+except Exception:
+    pass
 
 def load(path):
     try:
@@ -103,6 +129,8 @@ for path in sorted(glob.glob(os.path.join(accounts_dir, "*.json"))):
         active = " (active: login)"
     if setup_tok and env_token and setup_tok == env_token:
         active += " (active: token env)"
+    elif setup_tok and pinned_token and setup_tok == pinned_token:
+        active += " (active: token pinned)"
 
     expiry = ""
     if setup_tok and setup.get("expiresAt"):
@@ -115,8 +143,10 @@ for path in sorted(glob.glob(os.path.join(accounts_dir, "*.json"))):
         else:
             expiry = f"  token期限: {date} (残{days}日)"
 
+    observed = "  (観測対象外)" if name in poll_exclude else ""
+
     mark = "*" if active else " "
-    print(f"  {mark} {name} {method_str}{active}{expiry}")
+    print(f"  {mark} {name} {method_str}{active}{observed}{expiry}")
 PYEOF
 }
 
@@ -130,6 +160,68 @@ use_account() {
   local script_dir
   script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
   node "$script_dir/cli/accounts.js" "$name"
+
+  # login モードと token pinned モードは排他: env.sh が残っていると
+  # 新しいシェルで CLAUDE_CODE_OAUTH_TOKEN が credentials.json より優先されてしまう
+  if [[ -f "$ENV_FILE" ]]; then
+    rm -f "$ENV_FILE"
+    echo "token mode を解除しました ($ENV_FILE を削除)。"
+    echo "  既に開いているシェルでは: unset CLAUDE_CODE_OAUTH_TOKEN"
+  fi
+}
+
+use_token_account() {
+  local name="${1:-}"
+  [[ -z "$name" ]] && { echo "Usage: shift use-token <name>"; exit 1; }
+  local token
+  token=$(token_value "$name") || exit 1
+
+  mkdir -p "$(dirname "$ENV_FILE")"
+  {
+    echo "# claude-shift use-token: ${name} ($(date '+%Y-%m-%d %H:%M'))"
+    printf 'export CLAUDE_CODE_OAUTH_TOKEN=%q\n' "$token"
+  } > "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+
+  echo "Token mode: $name"
+  echo "  wrote: $ENV_FILE"
+  if ! grep -qs "claude-shift/env.sh" "${HOME}/.bashrc"; then
+    cat <<'EOF'
+  新しいシェルで自動適用するには ~/.bashrc に以下を追記してください:
+    [ -f ~/.claude-shift/env.sh ] && source ~/.claude-shift/env.sh
+EOF
+  fi
+  echo "  今のシェルに適用するには: source $ENV_FILE"
+  echo "  login モードに戻すには:   ./shift.sh use <name>"
+}
+
+observe_cmd() {
+  local name="${1:-}"
+  local flag="${2:-}"
+  local script_dir
+  script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+  if [[ -z "$name" ]]; then
+    node "$script_dir/cli/config.js" get
+    return
+  fi
+  [[ -f "$ACCOUNTS_DIR/${name}.json" ]] || { echo "Account '$name' not found. Run: shift list"; exit 1; }
+
+  case "$flag" in
+    on)
+      node "$script_dir/cli/config.js" set-exclude "$name" off >/dev/null
+      echo "'$name' をこのマシンの観測対象にしました"
+      ;;
+    off)
+      node "$script_dir/cli/config.js" set-exclude "$name" on >/dev/null
+      echo "'$name' を観測対象外にしました (login を所有する別マシンで観測する想定)"
+      ;;
+    *)
+      echo "Usage: shift observe [<name> on|off]"
+      exit 1
+      ;;
+  esac
+  echo "  反映: server は次回 poll から。設定は $CONFIG_FILE"
 }
 
 show_usage() {
@@ -138,6 +230,10 @@ import { fetchAllUsage } from "./cli/fetch-usage.js";
 
 const all = await fetchAllUsage();
 for (const a of all) {
+  if (a.excluded) {
+    console.log(`\n[${a.name}] 観測対象外 (別マシンで観測中。戻す: ./shift.sh observe ${a.name} on)`);
+    continue;
+  }
   if (a.error) {
     console.log(`\n[${a.name}] ERROR: ${a.error}`);
     continue;
@@ -315,6 +411,8 @@ shift || true
 case "$cmd" in
   list)      list_accounts ;;
   use)       use_account "$@" ;;
+  use-token) use_token_account "$@" ;;
+  observe)   observe_cmd "$@" ;;
   usage)     show_usage ;;
   seed)      seed_account "$@" ;;
   add)       add_account "$@" ;;

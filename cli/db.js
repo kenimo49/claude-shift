@@ -59,7 +59,8 @@ export function saveSnapshots(usageList, dataDir) {
   const insertAll = db.transaction((rows) => rows.forEach((r) => insert.run(r)));
   insertAll(
     usageList
-      .filter((u) => !u.error)
+      // excluded (pollExclude で観測対象外) は成功でも失敗でもないので snapshot に残さない
+      .filter((u) => !u.error && !u.excluded)
       .map((u) => ({
         account: u.name,
         captured_at: now,
