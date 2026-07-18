@@ -166,6 +166,7 @@ npm test
 ## ドキュメント
 
 - [docs/account-setup.md](docs/account-setup.md) — 登録・切替の詳細ガイド、事故パターン、干渉なしログイン方法
+- [docs/setup-token-guide.md](docs/setup-token-guide.md) — setup-token の発行 → 登録 → 日常運用 → 1年後の再発行までの手順書
 - [docs/knowledge/claude-code-auth-internals.md](docs/knowledge/claude-code-auth-internals.md) — Claude Code の 2 ファイル認証仕様メモ
 - [docs/knowledge/multi-device-token-conflict.md](docs/knowledge/multi-device-token-conflict.md) — 複数マシン同時使用で毎日ログアウトされる問題 (refresh token 競合) と setup-token による対策
 - [ROADMAP.md](ROADMAP.md) — 今後の UI 層追加候補 (Local Web UI / TUI / VS Code 拡張) と方針
