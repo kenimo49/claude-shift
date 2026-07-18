@@ -52,6 +52,10 @@ Saved setup-token for 'imoto-team' (login併存)
 
 - email が違う → ブラウザのアカウント選択ミス。`./shift.sh rm <name>` はせず、
   正しいアカウントで 1-1 からやり直して `add-token` で上書きする
+- `identity enrich skipped: HTTP 403` → **正常**。setup-token には profile スコープが
+  無いため、login 側の identity が未登録のアカウントでは表示できない（login 側の
+  次回 refresh 時に自動で埋まる）。この場合 email の機械検証はできないので、
+  ブラウザでのアカウント選択が正しかったことを再確認する
 - `identity enrich skipped: HTTP 401` → トークン自体が無効の可能性。貼り付けミス
   （途中で切れた等）を疑い、再発行から
 
@@ -72,12 +76,17 @@ Accounts:
 
 ## 2. 疎通確認
 
+setup-token は **inference 専用スコープ**で、usage / profile API は使えない
+(実測: beta ヘッダ無し 403 / 有り 429。usage 観測は従来どおり login credentials で動く)。
+そのため疎通確認は claude の実行そのもので行う:
+
 ```bash
-./shift.sh usage
+CLAUDE_CODE_OAUTH_TOKEN=$(./shift.sh token <name>) claude -p "ok"
 ```
 
-各アカウントに `(via setup-token)` が付いていれば、usage 取得が setup-token 経由に
-切り替わっている（= ポーリングが login credentials の refresh を消費しなくなった）。
+応答が返れば疎通OK。「You've hit your session limit」が返った場合も、
+アカウントの枠状態が見えている = **認証は通っている**（枠のリセットを待てばよい）。
+注意: この確認は該当アカウントの 5 時間ウィンドウを起動する（seed と同じ副作用）。
 
 ## 3. 日常の使い方
 

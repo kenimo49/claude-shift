@@ -49,7 +49,8 @@ claude setup-token               # ブラウザ認可 → 1年トークンが表
 eval "$(./shift.sh env <name>)"  # CLAUDE_CODE_OAUTH_TOKEN をこのシェルに適用
 ```
 
-- `usage` / `server` のポーリングは **setup-token を優先**するため、観測が login credentials の refresh rotation を消費しない（この問題のトリガーを1つ潰せる）
+- **setup-token は inference 専用スコープ** (2026-07-18 実測)。`/api/oauth/usage` と `/api/oauth/profile` は beta ヘッダ無しで 403、有りで 429 固定（同時刻の login token は 200）。そのため usage 観測は従来どおり login credentials で行われ、token-only アカウントのみ setup-token で試行する
+- 観測ポーリングの refresh は残るため、**別マシンで /login 運用中のアカウントを server で観測すると rotation 競合は起き得る**。競合を完全に消すには、そのマシンでの claude 実行を setup-token (env) に寄せ、login credentials を持つマシンを1台に絞る
 - `list` は `[login]` / `[token]` / `[login+token]` の認証方式と token 期限（残30日で警告）を表示する
 - setup-token は `~/.claude/.credentials.json` には書き込まれない（claude CLI が refresh を試みて壊れるのを防ぐ）
 

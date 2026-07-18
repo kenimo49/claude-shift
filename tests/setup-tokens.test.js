@@ -237,8 +237,8 @@ describe("fetch-usage: setup-token 優先", () => {
     };
   }
 
-  test("有効な setup-token があれば refresh を消費せず setup-token で fetch する", async () => {
-    const { tmp, account } = makeAccount();
+  test("token-only なら setup-token で fetch する (refresh 不消費)", async () => {
+    const { tmp, account } = makeAccount({ login: false });
     try {
       let refreshCalled = 0;
       let usedToken = null;
@@ -257,28 +257,25 @@ describe("fetch-usage: setup-token 優先", () => {
     }
   });
 
-  test("setup-token が 401 なら login credentials に fallback する", async () => {
+  test("login があれば setup-token は使わず login token で fetch する (usage API は setup-token 拒否のため)", async () => {
     const { tmp, account } = makeAccount();
     try {
       const calls = [];
       const fetchImpl = async (url, opts) => {
         calls.push(opts.headers.Authorization);
-        if (opts.headers.Authorization === `Bearer ${TOKEN}`) {
-          return { ok: false, status: 401, headers: { get: () => null } };
-        }
         return { ok: true, json: async () => ({ five_hour: { utilization: 20 } }) };
       };
-      const refreshImpl = async () => { throw new Error("should not refresh"); };
-      const r = await fetchUsageForAccount(account, { fetchImpl, refreshImpl });
+      const r = await fetchUsageForAccount(account, { fetchImpl });
       assert.equal(r.ok, true);
-      assert.deepEqual(calls, [`Bearer ${TOKEN}`, "Bearer sk-ant-oat01-LOGIN"]);
+      assert.notEqual(r.via, "setup_token");
+      assert.deepEqual(calls, ["Bearer sk-ant-oat01-LOGIN"]);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  test("setup-token で 429 は真の rate-limit として返す (login に切替えない)", async () => {
-    const { tmp, account } = makeAccount();
+  test("token-only の 429 は真の rate-limit として返す", async () => {
+    const { tmp, account } = makeAccount({ login: false });
     try {
       const fetchImpl = async () => ({
         ok: false,

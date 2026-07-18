@@ -194,15 +194,16 @@ export async function fetchUsageForAccount(
     }
   };
 
-  // setup-token 優先: refresh rotation を一切消費せずに usage を取得できる。
-  // usage ポーリング (server) が login credentials の refresh を回すと、同一アカウントを
-  // 使う他マシンの refresh token を失効させる (multi-device-token-conflict.md)。
-  // setup-token が有効なら login 側には一切触らない。
+  // setup-token は inference 専用スコープで、usage/profile API は拒否される
+  // (2026-07-18 実測: beta ヘッダ無し=403 / 有り=429 固定。login token は同時刻に 200)。
+  // そのため usage 取得は login credentials が正で、setup-token を試すのは
+  // login の無い token-only アカウントだけ (失敗しても他に手段が無く、
+  // setup_token_invalid / expired として状態を可視化する意味がある)。
   const setupTokenValid =
     account.setupToken &&
     (account.setupTokenExpiresAt == null ||
       account.setupTokenExpiresAt - now() > EXPIRY_SKEW_MS);
-  if (setupTokenValid) {
+  if (setupTokenValid && !account.token) {
     try {
       const data = await fetchUsage(account.setupToken, { fetchImpl });
       return { name: account.name, ok: true, refreshed: false, via: "setup_token", data };
@@ -226,22 +227,17 @@ export async function fetchUsageForAccount(
             : "rate limited",
         };
       }
-      if (!account.token) {
-        // token-only アカウント: fallback 先が無いので setup-token の失効/無効として返す
-        return {
-          name: account.name,
-          ok: false,
-          refreshed: false,
-          via: "setup_token",
-          error_kind: "setup_token_invalid",
-          http_status: status,
-          needs_reauth: status === 401 || status === 403,
-          error: `setup-token fetch failed: ${e.message} (再発行: claude setup-token → shift add-token)`,
-        };
-      }
-      console.warn(
-        `[fetch-usage] ${account.name}: setup-token failed (HTTP ${status ?? "?"}), falling back to login credentials`
-      );
+      // token-only アカウント: fallback 先が無いので setup-token の失効/無効として返す
+      return {
+        name: account.name,
+        ok: false,
+        refreshed: false,
+        via: "setup_token",
+        error_kind: "setup_token_invalid",
+        http_status: status,
+        needs_reauth: status === 401 || status === 403,
+        error: `setup-token fetch failed: ${e.message} (再発行: claude setup-token → shift add-token)`,
+      };
     }
   } else if (!account.token) {
     // token-only アカウントで setup-token が期限切れ/直前: login fallback が無い

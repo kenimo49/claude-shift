@@ -83,7 +83,7 @@ chmod +x shift.sh
 
 同一アカウントを複数マシンで `/login` すると、refresh token のローテーション競合で片方が毎日ログアウトされます ([docs/knowledge/multi-device-token-conflict.md](docs/knowledge/multi-device-token-conflict.md))。`claude setup-token` の 1 年トークン (refresh なし) を `add-token` で登録すると:
 
-- **usage 観測が rotation を消費しなくなる**: `usage` / `server` のポーリングは setup-token を優先して使うため、login credentials の refresh を一切走らせません
+- **inference 専用スコープ**: setup-token は claude の実行 (モデルリクエスト) にのみ使えます。usage / profile API は拒否される (実測 403/429) ため、usage 観測は従来どおり login credentials で行われます (token-only アカウントのみ setup-token で試行し、状態を可視化)
 - **login と併存**: 同じアカウント名に `[login+token]` の両方式を持てます。`use` は login、環境変数利用は `env` / `token`
 - **期限管理**: 発行時期・期限を SQLite (`setup_tokens` テーブル) に記録し、`list` が残 30 日を切ると再発行を促します
 
