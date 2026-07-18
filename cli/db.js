@@ -35,6 +35,14 @@ function openDb(dataDir = defaultDataDir()) {
       message     TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_failures_account ON failures(account, at);
+
+    CREATE TABLE IF NOT EXISTS setup_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      account    TEXT    NOT NULL,
+      issued_at  INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_setup_tokens_account ON setup_tokens(account, issued_at);
   `);
   return db;
 }
@@ -153,6 +161,35 @@ export function getLatestFailuresPerAccount(dataDir) {
       FROM latest_fail lf
       LEFT JOIN latest_snap ls ON ls.account = lf.account
       WHERE ls.at IS NULL OR lf.at > ls.at
+    `)
+    .all();
+  db.close();
+  return rows;
+}
+
+// setup-token の発行記録。1年期限の再発行管理用に履歴として append する。
+// 同一 account への再発行は行を追加する (上書きしない)。最新行が現行 token。
+export function saveSetupTokenIssuance({ account, issuedAt, expiresAt }, dataDir) {
+  const db = openDb(dataDir);
+  db.prepare(
+    `INSERT INTO setup_tokens (account, issued_at, expires_at) VALUES (?, ?, ?)`
+  ).run(account, issuedAt, expiresAt);
+  db.close();
+}
+
+// account ごとの最新発行記録を返す。account 指定なしなら全アカウント分。
+export function getLatestSetupTokenIssuances(dataDir) {
+  const db = openDb(dataDir);
+  const rows = db
+    .prepare(`
+      SELECT s.*
+      FROM setup_tokens s
+      INNER JOIN (
+        SELECT account, MAX(issued_at) AS max_at
+        FROM setup_tokens
+        GROUP BY account
+      ) t ON s.account = t.account AND s.issued_at = t.max_at
+      ORDER BY s.account
     `)
     .all();
   db.close();

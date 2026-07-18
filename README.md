@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-45%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-144%20passing-brightgreen.svg)](tests/)
 
 複数の Claude Code アカウントを 1 台のマシンで切り替え・観測するツール。CLI + ローカル API サーバー + Chrome 拡張の 3 層構成です。
 
@@ -68,13 +68,32 @@ chmod +x shift.sh
 
 | コマンド | 内容 |
 |---|---|
-| `./shift.sh list` | 登録済み全アカウントと active を一覧表示 |
-| `./shift.sh use <name>` | active を切替。refresh 済み token を sync back し、`~/.claude.json` の oauthAccount も更新 |
+| `./shift.sh list` | 登録済み全アカウントと認証方式 (`[login]` / `[token]` / `[login+token]`)、active、setup-token 期限を一覧表示 |
+| `./shift.sh use <name>` | active を切替。refresh 済み token を sync back し、`~/.claude.json` の oauthAccount も更新 (login 系専用) |
 | `./shift.sh usage` | 全アカウントの 5 時間枠と週次の使用率+リセット時刻を表示 |
 | `./shift.sh seed <name>` | 最小 API リクエスト 1 発で 5 時間ウィンドウを能動起動 (長時間セッション直前に新枠を仕込む用) |
 | `./shift.sh add <name>` | 現在の `credentials.json` を `<name>` として登録。重複 token は警告 (`-f` で強行) |
+| `./shift.sh add-token <name>` | `claude setup-token` で発行した 1 年トークンを `<name>` に登録 (login と併存可)。発行時期・期限は SQLite に記録 |
+| `./shift.sh token <name>` | 登録済み setup-token の値を出力 (`CLAUDE_CODE_OAUTH_TOKEN=$(./shift.sh token x) claude -p ...`) |
+| `./shift.sh env <name>` | `export CLAUDE_CODE_OAUTH_TOKEN=...` を出力 (`eval "$(./shift.sh env x)"` でシェルに適用) |
 | `./shift.sh rm <name>` | 登録削除。active 削除は `-f` 必要 |
 | `./shift.sh server [--interval N]` | ローカル API サーバ (127.0.0.1:19867) 起動 |
+
+## setup-token 併用 (複数マシン運用)
+
+同一アカウントを複数マシンで `/login` すると、refresh token のローテーション競合で片方が毎日ログアウトされます ([docs/knowledge/multi-device-token-conflict.md](docs/knowledge/multi-device-token-conflict.md))。`claude setup-token` の 1 年トークン (refresh なし) を `add-token` で登録すると:
+
+- **usage 観測が rotation を消費しなくなる**: `usage` / `server` のポーリングは setup-token を優先して使うため、login credentials の refresh を一切走らせません
+- **login と併存**: 同じアカウント名に `[login+token]` の両方式を持てます。`use` は login、環境変数利用は `env` / `token`
+- **期限管理**: 発行時期・期限を SQLite (`setup_tokens` テーブル) に記録し、`list` が残 30 日を切ると再発行を促します
+
+```bash
+# ken のマシン: 通常どおり /login
+# サブマシン / cron: setup-token で運用
+claude setup-token                     # ブラウザ認可 → token が表示される
+./shift.sh add-token my-account-a      # 貼り付けて登録 (入力は非表示)
+eval "$(./shift.sh env my-account-a)"  # このシェルの claude が token で動く
+```
 
 ## API エンドポイント (127.0.0.1:19867)
 
@@ -131,7 +150,7 @@ sync back を経由しない差し替えで refresh 済み token が捨てられ
 ## セキュリティ / プライバシー
 
 - **書き換えるファイル**: `~/.claude/.credentials.json` (token 保管) と `~/.claude.json` の `oauthAccount` フィールドのみ。`~/.claude.json` の他フィールド (会話履歴、UI 設定など) には触れません
-- **保存先**: 登録済みアカウントの credentials 一覧は `~/.claude-shift/accounts/<name>.json`。SQLite の usage スナップショットは `~/.claude-shift/usage.db`
+- **保存先**: 登録済みアカウントの credentials (と setup-token) は `~/.claude-shift/accounts/<name>.json`。SQLite の usage スナップショット・setup-token 発行記録は `~/.claude-shift/usage.db`。setup-token は `credentials.json` へは書き込みません
 - **通信先**: `api.anthropic.com` のみ (`/api/oauth/profile` と `/api/oauth/usage`)。外部サーバへの送信はありません
 - **サーバのバインド**: `127.0.0.1:19867` (loopback only、外部から到達不可)
 - **ファイル権限**: `credentials.json` は `chmod 600` (owner のみ読み書き) で書き出します
@@ -141,13 +160,14 @@ sync back を経由しない差し替えで refresh 済み token が捨てられ
 ```bash
 npm test
 # node --test tests/*.test.js
-# → 45 tests passing
+# → 144 tests passing
 ```
 
 ## ドキュメント
 
 - [docs/account-setup.md](docs/account-setup.md) — 登録・切替の詳細ガイド、事故パターン、干渉なしログイン方法
 - [docs/knowledge/claude-code-auth-internals.md](docs/knowledge/claude-code-auth-internals.md) — Claude Code の 2 ファイル認証仕様メモ
+- [docs/knowledge/multi-device-token-conflict.md](docs/knowledge/multi-device-token-conflict.md) — 複数マシン同時使用で毎日ログアウトされる問題 (refresh token 競合) と setup-token による対策
 - [ROADMAP.md](ROADMAP.md) — 今後の UI 層追加候補 (Local Web UI / TUI / VS Code 拡張) と方針
 
 ## 関連

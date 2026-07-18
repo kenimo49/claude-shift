@@ -15,6 +15,7 @@ import {
   enrichIdentityForAccount,
   recordIdentityEnrichError,
 } from "./accounts.js";
+import { extractSetupToken, extractSetupTokenExpiresAt } from "./tokens.js";
 import { refreshOAuthToken } from "./token-refresh.js";
 
 const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
@@ -106,9 +107,11 @@ export function loadAccounts(accountsDir = DEFAULT_ACCOUNTS_DIR) {
         token: extractToken(raw),
         refreshToken: extractRefreshToken(raw),
         expiresAt: extractExpiresAt(raw),
+        setupToken: extractSetupToken(raw),
+        setupTokenExpiresAt: extractSetupTokenExpiresAt(raw),
       };
     })
-    .filter((a) => a.token);
+    .filter((a) => a.token || a.setupToken);
 }
 
 // 期限切れ or 期限直前なら true
@@ -190,6 +193,68 @@ export async function fetchUsageForAccount(
       };
     }
   };
+
+  // setup-token 優先: refresh rotation を一切消費せずに usage を取得できる。
+  // usage ポーリング (server) が login credentials の refresh を回すと、同一アカウントを
+  // 使う他マシンの refresh token を失効させる (multi-device-token-conflict.md)。
+  // setup-token が有効なら login 側には一切触らない。
+  const setupTokenValid =
+    account.setupToken &&
+    (account.setupTokenExpiresAt == null ||
+      account.setupTokenExpiresAt - now() > EXPIRY_SKEW_MS);
+  if (setupTokenValid) {
+    try {
+      const data = await fetchUsage(account.setupToken, { fetchImpl });
+      return { name: account.name, ok: true, refreshed: false, via: "setup_token", data };
+    } catch (e) {
+      const status = e?.status ?? null;
+      // setup-token は1年有効なので 429 = 真の rate-limit。login token に切り替えても
+      // 同じアカウント枠で 429 が返るだけなので、ここで rate_limited として返す。
+      if (status === 429) {
+        const retryMs = e?.retryAfterMs ?? null;
+        return {
+          name: account.name,
+          ok: false,
+          refreshed: false,
+          via: "setup_token",
+          error_kind: "rate_limited",
+          http_status: 429,
+          needs_reauth: false,
+          retry_after_ms: retryMs,
+          error: retryMs != null
+            ? `rate limited (Retry-After: ${Math.round(retryMs / 1000)}s)`
+            : "rate limited",
+        };
+      }
+      if (!account.token) {
+        // token-only アカウント: fallback 先が無いので setup-token の失効/無効として返す
+        return {
+          name: account.name,
+          ok: false,
+          refreshed: false,
+          via: "setup_token",
+          error_kind: "setup_token_invalid",
+          http_status: status,
+          needs_reauth: status === 401 || status === 403,
+          error: `setup-token fetch failed: ${e.message} (再発行: claude setup-token → shift add-token)`,
+        };
+      }
+      console.warn(
+        `[fetch-usage] ${account.name}: setup-token failed (HTTP ${status ?? "?"}), falling back to login credentials`
+      );
+    }
+  } else if (!account.token) {
+    // token-only アカウントで setup-token が期限切れ/直前: login fallback が無い
+    return {
+      name: account.name,
+      ok: false,
+      refreshed: false,
+      via: "setup_token",
+      error_kind: "setup_token_expired",
+      needs_reauth: true,
+      error: "setup-token が期限切れです (再発行: claude setup-token → shift add-token)",
+    };
+  }
 
   // proactive: expiresAt が過ぎている / 直前
   if (isExpired(account.expiresAt, now())) {
@@ -302,7 +367,7 @@ export async function fetchAllUsage(accountsDir) {
   );
   return results.map((r) => {
     if (r.ok) {
-      return { name: r.name, refreshed: r.refreshed, ...r.data };
+      return { name: r.name, refreshed: r.refreshed, via: r.via ?? "login", ...r.data };
     }
     return {
       name: r.name,
@@ -312,6 +377,7 @@ export async function fetchAllUsage(accountsDir) {
       needs_reauth: !!r.needs_reauth,
       retry_after_ms: r.retry_after_ms ?? null,
       refreshed: r.refreshed,
+      via: r.via ?? "login",
     };
   });
 }

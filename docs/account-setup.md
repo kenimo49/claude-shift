@@ -78,6 +78,21 @@ chmod 600 ~/.claude-shift/accounts/<name>.json
 
 **将来的には `shift add-fresh <name>` として自動化予定**。
 
+## setup-token の登録（`add-token`）
+
+`/login` 系とは別に、`claude setup-token` が発行する **1年有効の長期トークン** を同じアカウント名に併存登録できます。refresh rotation が無いため、複数マシン運用の毎日ログアウト問題 ([knowledge/multi-device-token-conflict.md](knowledge/multi-device-token-conflict.md)) の対策になります。
+
+```bash
+claude setup-token             # ブラウザ認可 → トークンが表示される (どこにも自動保存されない)
+bash shift.sh add-token kumiko # 貼り付けて登録 (入力は非表示)。pipe も可
+bash shift.sh list             # kumiko [login+token] token期限: YYYY-MM-DD (残N日)
+```
+
+- 保存先は同じ `accounts/<name>.json` の `setupToken` ブロック。login credentials とは別枠で、`add` / `use` / sync-back で破壊されません
+- 発行時期・期限 (発行 + 365日) は `~/.claude-shift/usage.db` の `setup_tokens` テーブルに記録され、`list` が残30日で再発行を促します
+- 使うときは環境変数で: `eval "$(bash shift.sh env kumiko)"` または `CLAUDE_CODE_OAUTH_TOKEN=$(bash shift.sh token kumiko) claude -p "..."`
+- **`shift use` は setup-token では動きません** (credentials.json に書くと claude CLI が refresh を試みて壊れるため、token-only アカウントには use を拒否してガイダンスを出します)
+
 ## `shift use` の挙動
 
 ```bash

@@ -60,6 +60,25 @@ function readJsonSafe(path) {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
 }
 
+// account JSON → credentials.json へ書く内容を作る。
+// setupToken (1年トークン) と shift 内部フィールドは claude CLI に渡す必要が無く、
+// credentials.json への secret 拡散を避けるため落とす。
+export function toCredentialsPayload(accountRaw) {
+  const { setupToken, _shiftIdentityError, ...rest } = accountRaw ?? {};
+  return rest;
+}
+
+// credentials.json の内容を account JSON へ書き戻す (sync-back / add 用)。
+// 丸コピーだと account JSON 側にしか無い setupToken / oauthAccount /
+// _shiftIdentityError が破壊されるため、既存フィールドを保持して merge する。
+export function mergeCredentialsIntoAccount(accountPath, credsRaw) {
+  const existing = readJsonSafe(accountPath) ?? {};
+  const merged = { ...existing, ...credsRaw };
+  writeFileSync(accountPath, JSON.stringify(merged, null, 2));
+  try { chmodSync(accountPath, 0o600); } catch {}
+  return merged;
+}
+
 // refresh 済み token を account JSON (と必要なら active credentials.json) に書き戻す。
 // 既存フィールド (scopes, subscriptionType, rateLimitTier, その他) は保持する。
 //
@@ -113,7 +132,9 @@ export function writeAccountCreds(
     };
   }
   try {
-    writeFileSync(credentialsPath, readFileSync(accountPath));
+    // setupToken 等の shift 内部フィールドは credentials.json に持ち込まない
+    const payload = toCredentialsPayload(JSON.parse(readFileSync(accountPath, "utf8")));
+    writeFileSync(credentialsPath, JSON.stringify(payload, null, 2));
     chmodSync(credentialsPath, 0o600);
   } catch (e) {
     return { active: true, mirrored: false, mirrorError: e.message };
@@ -340,15 +361,31 @@ export async function switchAccount(
   const target = join(accountsDir, `${name}.json`);
   if (!existsSync(target)) throw new Error(`Account '${name}' not found`);
 
-  // sync-back: 現在の credentials.json を今のactiveアカウントに書き戻す
-  const active = getActiveAccount(accountsDir, credentialsPath);
-  if (active && active !== name && existsSync(credentialsPath)) {
-    writeFileSync(join(accountsDir, `${active}.json`), readFileSync(credentialsPath));
+  // token-only アカウント (setupToken のみ、claudeAiOauth 無し) は credentials.json
+  // 切替の対象外。claude CLI が refresh を試みて壊れるため、env var 利用を案内する。
+  const targetRaw = readJsonSafe(target);
+  if (!extractToken(targetRaw)) {
+    if (targetRaw?.setupToken?.accessToken) {
+      throw new Error(
+        `Account '${name}' は setup-token のみ登録です (login credentials 無し)。\n` +
+        `credentials.json 切替は /login 系アカウント専用なので、環境変数で使ってください:\n` +
+        `  eval "$(shift.sh env ${name})"   # CLAUDE_CODE_OAUTH_TOKEN を export`
+      );
+    }
+    throw new Error(`Account '${name}' has no accessToken`);
   }
 
-  // credentials 切替
+  // sync-back: 現在の credentials.json を今のactiveアカウントに書き戻す。
+  // 丸コピーではなく merge (account JSON 側の setupToken / oauthAccount を保持)。
+  const active = getActiveAccount(accountsDir, credentialsPath);
+  if (active && active !== name && existsSync(credentialsPath)) {
+    const credsRaw = readJsonSafe(credentialsPath);
+    if (credsRaw) mergeCredentialsIntoAccount(join(accountsDir, `${active}.json`), credsRaw);
+  }
+
+  // credentials 切替 (setupToken 等の shift 内部フィールドは持ち込まない)
   mkdirSync(dirname(credentialsPath), { recursive: true });
-  writeFileSync(credentialsPath, readFileSync(target));
+  writeFileSync(credentialsPath, JSON.stringify(toCredentialsPayload(targetRaw), null, 2));
   try { chmodSync(credentialsPath, 0o600); } catch {}
 
   // ~/.claude.json の oauthAccount を新アカウントに合わせて更新
@@ -369,12 +406,22 @@ export async function switchAccount(
 }
 
 // CLI エントリポイント:
-//   node cli/accounts.js <name>              switchAccount 実行
-//   node cli/accounts.js --enrich <name>     account に identity (uuid 等) を埋め込む (best-effort)
+//   node cli/accounts.js <name>                switchAccount 実行
+//   node cli/accounts.js --enrich <name>       account に identity (uuid 等) を埋め込む (best-effort)
+//   node cli/accounts.js --merge-creds <name>  credentials.json を account JSON へ merge 保存
+//                                              (setupToken 等を保持。shift.sh add / sync-back 用)
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const usage = "Usage: node cli/accounts.js <name> | --enrich <name>";
-  if (args[0] === "--enrich") {
+  const usage = "Usage: node cli/accounts.js <name> | --enrich <name> | --merge-creds <name>";
+  if (args[0] === "--merge-creds") {
+    const name = args[1];
+    if (!name) { console.error(usage); process.exit(1); }
+    const credsRaw = readJsonSafe(DEFAULT_CREDENTIALS);
+    if (!credsRaw) { console.error(`credentials.json が読めません: ${DEFAULT_CREDENTIALS}`); process.exit(1); }
+    mkdirSync(DEFAULT_ACCOUNTS_DIR, { recursive: true });
+    mergeCredentialsIntoAccount(join(DEFAULT_ACCOUNTS_DIR, `${name}.json`), credsRaw);
+    console.log(`Saved as: ${join(DEFAULT_ACCOUNTS_DIR, `${name}.json`)}`);
+  } else if (args[0] === "--enrich") {
     const name = args[1];
     if (!name) { console.error(usage); process.exit(1); }
     const path = join(DEFAULT_ACCOUNTS_DIR, `${name}.json`);

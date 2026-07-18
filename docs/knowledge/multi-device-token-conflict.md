@@ -35,9 +35,23 @@ sync-back（切替時に最新トークンを `~/.claude-shift/accounts/<name>.j
 
 | 案 | 内容 | トレードオフ |
 |---|---|---|
-| **アカウントをマシン単位で分ける（推奨）** | マシンごとに専用アカウントを割り当てる | 最も確実。複数アカウント保有が前提 |
-| 片方を `claude setup-token` にする | 長期トークン（refresh なし）を発行して使う。ローテーションが起きないので競合しない | 有効期限切れ時に手動再発行。対話ログインとの機能差に注意 |
+| **片方を `claude setup-token` にする（推奨、shift 対応済み）** | 1年有効の長期トークン（refresh なし）を発行して使う。ローテーションが起きないので競合しない | 1年後に手動再発行（`shift list` が残30日で警告）。Remote Control 等の一部機能は使えない |
+| アカウントをマシン単位で分ける | マシンごとに専用アカウントを割り当てる | 確実だが、アカウント数がマシン数に縛られる |
 | 現状維持 | 失効した側で毎日再ログイン | 手間が毎日発生。/login 上書き事故（[account-setup.md](../account-setup.md) 参照）のリスクも毎日踏む |
+
+## setup-token 対応 (2026-07-18 実装)
+
+claude-shift は setup-token を login と併存で管理できる。
+
+```bash
+claude setup-token               # ブラウザ認可 → 1年トークンが表示される
+./shift.sh add-token <name>      # 貼り付けて登録 (発行時期・期限は SQLite に記録)
+eval "$(./shift.sh env <name>)"  # CLAUDE_CODE_OAUTH_TOKEN をこのシェルに適用
+```
+
+- `usage` / `server` のポーリングは **setup-token を優先**するため、観測が login credentials の refresh rotation を消費しない（この問題のトリガーを1つ潰せる）
+- `list` は `[login]` / `[token]` / `[login+token]` の認証方式と token 期限（残30日で警告）を表示する
+- setup-token は `~/.claude/.credentials.json` には書き込まれない（claude CLI が refresh を試みて壊れるのを防ぐ）
 
 ## 関連
 
