@@ -1,0 +1,23 @@
+[Unit]
+Description=claude-shift local usage poller
+Documentation=https://github.com/kenimo49/claude-shift/blob/main/docs/service-setup.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# NODE_BIN と REPO_PATH は docs/service-setup.md の sed 手順で置換してから配置してください。
+ExecStart=NODE_BIN REPO_PATH/cli/server.js
+WorkingDirectory=REPO_PATH
+Restart=on-failure
+RestartSec=5
+
+# ポーリング間隔・ポートを固定したい場合はコメントを外して指定
+# Environment=CLAUDE_SHIFT_POLL_MINUTES=10
+# Environment=CLAUDE_SHIFT_PORT=19867
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

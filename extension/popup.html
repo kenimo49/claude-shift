@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Claude Shift</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Claude Shift</h1>
+      <div class="header-right">
+        <span id="timestamp" class="timestamp"></span>
+        <button id="btn-mask" class="icon-btn" title="アカウント名をマスキング (共有時用)">👁</button>
+        <button id="btn-analytics" class="icon-btn" title="分析">📊</button>
+        <button id="btn-settings" class="icon-btn" title="設定">⚙</button>
+      </div>
+    </header>
+
+    <div id="global-banner" class="global-banner hidden"></div>
+    <main id="accounts"></main>
+
+    <footer>
+      <button id="btn-refresh" class="footer-btn primary">今すぐ更新</button>
+    </footer>
+
+    <!-- 分析モーダル -->
+    <div id="analytics-modal" class="modal hidden">
+      <div class="modal-backdrop" data-close="analytics"></div>
+      <div class="modal-body modal-body-wide">
+        <div class="modal-header">
+          <span>分析グラフ</span>
+          <button class="icon-btn" data-close="analytics" title="閉じる">×</button>
+        </div>
+        <div class="modal-content">
+          <div class="chart-controls">
+            <div class="seg-btn-group" data-group="metric">
+              <button data-value="five_hour_pct" class="seg-btn is-on">5時間枠</button>
+              <button data-value="weekly_pct" class="seg-btn">週次</button>
+            </div>
+            <div class="seg-btn-group" data-group="range">
+              <button data-value="6" class="seg-btn">6h</button>
+              <button data-value="24" class="seg-btn is-on">24h</button>
+              <button data-value="168" class="seg-btn">7d</button>
+            </div>
+          </div>
+          <div id="chart-container"></div>
+          <div id="chart-legend" class="chart-legend"></div>
+          <div id="chart-msg" class="modal-msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 設定モーダル -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-body">
+        <div class="modal-header">
+          <span>設定</span>
+          <button id="modal-close" class="icon-btn" title="閉じる">×</button>
+        </div>
+        <div class="modal-content">
+          <label class="field">
+            <span class="field-label">ポーリング間隔（分）</span>
+            <input
+              id="poll-minutes"
+              type="number"
+              min="0.1"
+              step="0.5"
+              inputmode="decimal"
+            />
+            <span class="field-hint">サーバーが usage を自動取得する間隔</span>
+          </label>
+          <div class="field">
+            <span class="field-label">usage 観測対象</span>
+            <div id="observe-list" class="observe-list"></div>
+            <span class="field-hint">オフ = このマシンでは観測しない（login を所有する別マシン側で観測）</span>
+          </div>
+          <div id="modal-msg" class="modal-msg"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="modal-cancel" class="footer-btn">キャンセル</button>
+          <button id="modal-save" class="footer-btn primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
