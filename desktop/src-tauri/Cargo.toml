@@ -1,0 +1,22 @@
+[package]
+name = "claude-shift-desktop"
+version = "0.1.0"
+description = "claude-shift Local Web UI のデスクトップガワ (Tauri v2)"
+authors = ["ken imoto"]
+license = "MIT"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# webview-data-url: server を用意できなかったときの data: URL エラーページ表示に必要
+tauri = { version = "2", features = ["webview-data-url"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

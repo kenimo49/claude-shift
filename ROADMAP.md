@@ -39,6 +39,7 @@
 - Tauri or ネイティブでメニューバー常駐
 - **制約**: OS 別ビルド、code signing 必要
 - **実装コスト**: 大 (少なくとも 1-2 日)
+- **前段実装済み**: `desktop/` に Tauri v2 の独立ウィンドウ版 (A の Web UI を WebView で開くガワ、server 自動起動付き) を追加済み。tray 常駐化はこの上に載せる
 
 ### E. Chrome 拡張の維持
 
