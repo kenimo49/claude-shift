@@ -182,6 +182,17 @@ npm test
 # → 158 tests passing
 ```
 
+### e2e (Local Web UI)
+
+Playwright で Web UI の実ブラウザ挙動を検証します (一覧表示 / アカウント切替 / マスキング / サーバ停止時のエラー表示)。
+
+```bash
+npx playwright install chromium   # 初回のみ
+npm run test:e2e
+```
+
+テストは一時 dir を HOME にした隔離サーバに対して走るので、実行マシンの `~/.claude` / `~/.claude-shift` には触れません。外部ネットワークへのアクセスもありません (fixture 全アカウントを pollExclude に入れ、profile fetch は `CLAUDE_SHIFT_PROFILE_URL` でローカルに向けます)。
+
 ## ドキュメント
 
 - [docs/account-setup.md](docs/account-setup.md) — 登録・切替の詳細ガイド、事故パターン、干渉なしログイン方法

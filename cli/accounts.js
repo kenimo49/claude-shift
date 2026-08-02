@@ -15,7 +15,9 @@ import { fileURLToPath } from "url";
 export const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
 export const DEFAULT_CREDENTIALS = join(homedir(), ".claude", ".credentials.json");
 export const DEFAULT_CLAUDE_JSON = join(homedir(), ".claude.json");
-const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
+// e2e テストが外部ネットワークへ出ずに profile fetch の失敗パスを踏めるよう env で差し替え可能にする
+const PROFILE_URL =
+  process.env.CLAUDE_SHIFT_PROFILE_URL ?? "https://api.anthropic.com/api/oauth/profile";
 
 export function extractToken(obj) {
   return (
