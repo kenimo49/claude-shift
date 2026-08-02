@@ -10,3 +10,4 @@ playwright-report/
 
 # tauri
 desktop/src-tauri/target/
+desktop/src-tauri/gen/

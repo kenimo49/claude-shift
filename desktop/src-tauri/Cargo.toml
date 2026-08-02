@@ -10,9 +10,13 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# webview-data-url: server を用意できなかったときの data: URL エラーページ表示に必要
+tauri = { version = "2", features = ["webview-data-url"] }
 
 [profile.release]
 strip = true
 lto = true
 codegen-units = 1
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
