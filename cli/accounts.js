@@ -15,9 +15,23 @@ import { fileURLToPath } from "url";
 export const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
 export const DEFAULT_CREDENTIALS = join(homedir(), ".claude", ".credentials.json");
 export const DEFAULT_CLAUDE_JSON = join(homedir(), ".claude.json");
-// e2e テストが外部ネットワークへ出ずに profile fetch の失敗パスを踏めるよう env で差し替え可能にする
-const PROFILE_URL =
-  process.env.CLAUDE_SHIFT_PROFILE_URL ?? "https://api.anthropic.com/api/oauth/profile";
+// e2e テストが外部ネットワークへ出ずに profile fetch の失敗パスを踏めるよう env で差し替え可能にする。
+// ただし fetchProfile は実 OAuth token を Bearer で送るため、差し替え先は loopback のみ許可する
+// (任意 URL を許すと env 注入だけで token を外へ送れてしまう)。pure function としてテスト可能にしておく。
+const DEFAULT_PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
+export function resolveProfileUrl(override) {
+  if (!override) return DEFAULT_PROFILE_URL;
+  try {
+    const { hostname } = new URL(override);
+    // IPv6 loopback の hostname は WHATWG URL では "[::1]" (bracket 付き)
+    if (["127.0.0.1", "[::1]", "localhost"].includes(hostname)) return override;
+  } catch {}
+  console.error(
+    "[accounts] CLAUDE_SHIFT_PROFILE_URL は loopback (127.0.0.1/localhost) のみ許可。既定 URL を使います"
+  );
+  return DEFAULT_PROFILE_URL;
+}
+const PROFILE_URL = resolveProfileUrl(process.env.CLAUDE_SHIFT_PROFILE_URL);
 
 export function extractToken(obj) {
   return (

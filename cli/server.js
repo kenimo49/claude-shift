@@ -358,7 +358,8 @@ export { server };
 // EADDRINUSE で他テストと衝突するのを防ぐ。
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   server.listen(PORT, "127.0.0.1", async () => {
-    console.log(`claude-shift server → http://127.0.0.1:${PORT}`);
+    // CLAUDE_SHIFT_PORT=0 (ephemeral) でも実 bind ポートを表示する (e2e はこの行から取得)
+    console.log(`claude-shift server → http://127.0.0.1:${server.address().port}`);
     console.log(`polling every ${pollMinutes} minute(s)`);
     await refresh();
     reschedulePoll();

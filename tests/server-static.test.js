@@ -1,13 +1,22 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { server } from "../cli/server.js";
 
 // ROADMAP 案A: shift server が extension/ の popup 資産を静的配信し、ブラウザから
 // http://127.0.0.1:19867/ で開けるようにする。ここではその配信ルートの HTTP 挙動を確認する。
 // listen(0) で ephemeral port を掴むので既存 19867 との衝突は無い。
+//
+// server.js は module load 時に loadConfig() を読む (pollMinutes 初期化) ので、
+// import より先に config path を空 dir へ向けて実マシンの ~/.claude-shift/config.json を読ませない。
+process.env.CLAUDE_SHIFT_CONFIG_PATH = join(
+  mkdtempSync(join(tmpdir(), "claude-shift-static-test-")),
+  "config.json"
+);
+const { server } = await import("../cli/server.js");
 
 const EXTENSION_DIR = join(
   dirname(fileURLToPath(import.meta.url)),

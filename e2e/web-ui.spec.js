@@ -6,19 +6,29 @@
 //   ~/.claude / ~/.claude-shift には一切読み書きしない (tests/shift-add.test.js と同方式)。
 // - fixture 全アカウントを pollExclude に入れる → fetchAllUsage が fetch をスキップし、
 //   usage 取得の外部ネットワークアクセスが発生しない。
-// - 切替時の profile fetch は CLAUDE_SHIFT_PROFILE_URL で自サーバの未登録 path に向け、
-//   外部に出ずに失敗パス (catch 済み・切替自体は成功) を踏ませる。
+// - 切替時の profile fetch は CLAUDE_SHIFT_PROFILE_URL でテストプロセス内の loopback stub に向け、
+//   外部に出ずに失敗パス (catch 済み・切替自体は成功) を踏ませる (差し替えは loopback のみ許可)。
 // - ~/.claude.json 相当に oauthAccount を置かない → active 判定は token fallback になり、
 //   profile fetch が失敗しても切替結果が UI に反映される。
 import { test, expect } from "@playwright/test";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// 隔離 HOME に加えて、親プロセスから CLAUDE_SHIFT_* が漏れて実データを指すのを防ぐ。
+// (例: 実行マシンで CLAUDE_SHIFT_DATA_DIR が設定済みだと HOME 差し替えだけでは実 DB に触れる)
+function isolatedEnv(home, extra = {}) {
+  const env = { ...process.env, ...extra, HOME: home };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("CLAUDE_SHIFT_") && !(key in extra)) delete env[key];
+  }
+  return env;
+}
 
 function accountJson(name, uuid) {
   return {
@@ -36,21 +46,36 @@ function accountJson(name, uuid) {
   };
 }
 
-async function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
-
 let home;
 let serverProc;
 let serverLog = "";
 let base;
+let profileStub;
+
+// server の stdout「claude-shift server → http://127.0.0.1:<port>」から実 bind ポートを取る。
+// 事前に空きポートを探して渡す方式は close→spawn 間の TOCTOU で EADDRINUSE を踏みうるため、
+// CLAUDE_SHIFT_PORT=0 (ephemeral) で起動して OS に採番させる。
+function waitForReportedPort(proc, timeoutMs = 10_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`server did not report port\n--- server log ---\n${serverLog}`)),
+      timeoutMs
+    );
+    const check = () => {
+      const m = serverLog.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+      if (m) {
+        clearTimeout(timer);
+        resolve(Number(m[1]));
+      }
+    };
+    proc.stdout.on("data", check);
+    proc.on("exit", () => {
+      clearTimeout(timer);
+      reject(new Error(`server exited before reporting port\n--- server log ---\n${serverLog}`));
+    });
+    check();
+  });
+}
 
 async function waitForServer(url, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
@@ -90,22 +115,27 @@ test.beforeAll(async () => {
 
   // SQLite snapshot を server と同じコードパス (cli/db.js) で seed
   execFileSync(process.execPath, [join(REPO_ROOT, "e2e", "fixtures", "seed.mjs")], {
-    env: { ...process.env, HOME: home },
+    env: isolatedEnv(home),
   });
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
+  // profile fetch の宛先: テストプロセス内の loopback stub (404 固定)。外部には一切出ない
+  profileStub = createHttpServer((req, res) => {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end('{"error":"e2e profile stub"}');
+  });
+  await new Promise((r) => profileStub.listen(0, "127.0.0.1", r));
+  const stubPort = profileStub.address().port;
+
   serverProc = spawn(process.execPath, [join(REPO_ROOT, "cli", "server.js")], {
-    env: {
-      ...process.env,
-      HOME: home,
-      CLAUDE_SHIFT_PORT: String(port),
-      // 自サーバの未登録 path = JSON 404。外部に出ずに profile fetch を失敗させる
-      CLAUDE_SHIFT_PROFILE_URL: `${base}/e2e-profile-stub`,
-    },
+    env: isolatedEnv(home, {
+      CLAUDE_SHIFT_PORT: "0",
+      CLAUDE_SHIFT_PROFILE_URL: `http://127.0.0.1:${stubPort}/e2e-profile-stub`,
+    }),
   });
   serverProc.stdout.on("data", (d) => (serverLog += d));
   serverProc.stderr.on("data", (d) => (serverLog += d));
+  const port = await waitForReportedPort(serverProc);
+  base = `http://127.0.0.1:${port}`;
   await waitForServer(`${base}/usage`);
 });
 
@@ -115,6 +145,7 @@ test.afterAll(async () => {
     serverProc.kill("SIGTERM");
     await new Promise((r) => serverProc.once("exit", r));
   }
+  if (profileStub) await new Promise((r) => profileStub.close(r));
   if (home) rmSync(home, { recursive: true, force: true });
 });
 
