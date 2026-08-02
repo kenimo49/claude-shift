@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
   push:
     tags: ["desktop-v*"]
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "extension/**"
+      - ".github/workflows/desktop-build.yml"
 
 jobs:
   build:
