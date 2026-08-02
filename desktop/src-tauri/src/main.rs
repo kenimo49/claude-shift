@@ -156,6 +156,11 @@ fn main() {
     };
 
     let app = tauri::Builder::default()
+        // tray 常駐 (hidden 状態) 中に再起動されたとき、2 個目の window/tray を作らず
+        // 既存インスタンスの window を前面化する。プラグイン登録は最初に置く (公式推奨)
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_main_window(app);
+        }))
         .manage(SpawnedServer(Mutex::new(spawned)))
         .manage(TrayActive(AtomicBool::new(false)))
         .setup(move |app| {
@@ -193,7 +198,7 @@ fn main() {
                 })
                 .build(app);
             match tray {
-                Ok(_) => app.state::<TrayActive>().0.store(true, Ordering::Relaxed),
+                Ok(_) => app.state::<TrayActive>().0.store(true, Ordering::Release),
                 // tray が張れない環境 (SNI ホスト無し等) では常駐なしの普通のアプリとして動く
                 Err(e) => eprintln!("[desktop] tray 登録に失敗 (常駐なしで継続): {e}"),
             }
@@ -203,7 +208,7 @@ fn main() {
             // tray 常駐中は close で終了せず隠すだけ。完全終了は tray メニュー「終了」
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
-                if app.state::<TrayActive>().0.load(Ordering::Relaxed) {
+                if app.state::<TrayActive>().0.load(Ordering::Acquire) {
                     api.prevent_close();
                     let _ = window.hide();
                 }

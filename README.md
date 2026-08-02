@@ -85,7 +85,7 @@ chmod +x shift.sh
 
 ```bash
 npm run desktop:dev     # 開発起動 (cargo build + ウィンドウ表示)
-npm run desktop:build   # 配布バンドル生成 (deb / rpm / AppImage)
+npm run desktop:build   # 配布バンドル生成 (Linux: deb/rpm/AppImage, Windows: msi/nsis, macOS: dmg)
 ```
 
 前提: [Rust toolchain](https://rustup.rs/) と OS 別の Tauri システム依存 ([公式 prerequisites](https://v2.tauri.app/start/prerequisites/))。Linux は `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf` あたりが必要です。`CLAUDE_SHIFT_PORT` で接続先ポート、`CLAUDE_SHIFT_REPO` で repo の場所を上書きできます。
