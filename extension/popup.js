@@ -1,6 +1,11 @@
 import { formatCountdown, formatResetClock, formatRelativeAgo, renderBar } from "./helpers.js";
 
-const SERVER = "http://127.0.0.1:19867";
+// http(s) 配信 (shift server 経由の Local Web UI) のときだけ same-origin の相対 URL にして
+// CLAUDE_SHIFT_PORT の変更にも追随させる。それ以外 (chrome-extension: の拡張 popup、
+// file:// での直接デバッグ) は従来どおり既定ポートの絶対 URL。
+const SERVER = (typeof location !== "undefined" && /^https?:$/.test(location.protocol))
+  ? ""
+  : "http://127.0.0.1:19867";
 
 function renderLimit(title, pct, resetAt) {
   const countdown = formatCountdown(resetAt);

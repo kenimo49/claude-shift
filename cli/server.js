@@ -2,6 +2,9 @@
 // localhost:PORT で usage データを提供するローカル API サーバー
 
 import { createServer } from "http";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fetchAllUsage } from "./fetch-usage.js";
 import { loadConfig, saveConfig, getPollExclude } from "./config.js";
 import {
@@ -21,6 +24,27 @@ import {
 } from "./accounts.js";
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
+
+// ROADMAP 案A: extension/ を単一ソースとしてブラウザからも popup UI を開けるようにする。
+// path traversal を許さないため、ホワイトリスト方式で URL path → 実ファイルを固定マップする。
+const EXTENSION_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "extension");
+const STATIC_ASSETS = new Map([
+  ["/",           { file: "popup.html", contentType: "text/html; charset=utf-8" }],
+  ["/popup.html", { file: "popup.html", contentType: "text/html; charset=utf-8" }],
+  ["/popup.js",   { file: "popup.js",   contentType: "text/javascript; charset=utf-8" }],
+  ["/helpers.js", { file: "helpers.js", contentType: "text/javascript; charset=utf-8" }],
+  ["/styles.css", { file: "styles.css", contentType: "text/css; charset=utf-8" }],
+]);
+
+async function serveStatic(res, entry) {
+  try {
+    const data = await readFile(join(EXTENSION_DIR, entry.file));
+    res.writeHead(200, { "Content-Type": entry.contentType });
+    res.end(data);
+  } catch (e) {
+    respond(res, 500, { error: `static asset unavailable: ${e.code ?? e.message}` });
+  }
+}
 
 // ポーリング間隔（分）: CLI引数 > 環境変数 > 保存済み設定 > デフォルト10分
 function initialIntervalMinutes() {
@@ -315,15 +339,27 @@ const server = createServer(async (req, res) => {
     }
   }
 
+  // ホワイトリスト static 配信 (popup 資産)。JSON API より後・404 より前に置くことで
+  // 既存 API path とは衝突せず、未登録 path は従来どおり JSON 404 になる。
+  if (req.method === "GET" && STATIC_ASSETS.has(url.pathname)) {
+    await serveStatic(res, STATIC_ASSETS.get(url.pathname));
+    return;
+  }
+
   respond(res, 404, { error: "not found" });
 });
+
+// テストから listen(0) して静的配信の HTTP 挙動を確認できるように export する。
+// module load 時点では listen() されないので、import しても port は掴まれない。
+export { server };
 
 // CLI として直接実行された時のみ listen する。
 // テストが `import { isFullyFetched } from "../cli/server.js"` した際に port を掴んで
 // EADDRINUSE で他テストと衝突するのを防ぐ。
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   server.listen(PORT, "127.0.0.1", async () => {
-    console.log(`claude-shift server → http://127.0.0.1:${PORT}`);
+    // CLAUDE_SHIFT_PORT=0 (ephemeral) でも実 bind ポートを表示する (e2e はこの行から取得)
+    console.log(`claude-shift server → http://127.0.0.1:${server.address().port}`);
     console.log(`polling every ${pollMinutes} minute(s)`);
     await refresh();
     reschedulePoll();

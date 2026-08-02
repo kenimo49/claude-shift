@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-162%20passing-brightgreen.svg)](tests/)
 
 複数の Claude Code アカウントを 1 台のマシンで切り替え・観測するツール。CLI + ローカル API サーバー + Chrome 拡張の 3 層構成です。
 
@@ -64,6 +64,20 @@ chmod +x shift.sh
 1. Chrome で `chrome://extensions/` を開く
 2. 右上「デベロッパーモード」を ON
 3. 「パッケージ化されていない拡張機能を読み込む」→ `extension/` フォルダを指定
+
+### 5. ブラウザで使う (拡張 install 不要)
+
+`shift server` が起動していれば、そのまま `http://127.0.0.1:19867/` をブラウザで開くだけで Chrome 拡張と同じ popup UI が使えます。
+
+```bash
+./shift.sh server
+# → 別ウィンドウのブラウザで http://127.0.0.1:19867/ を開く
+```
+
+- Chrome / Firefox / Safari どこでも動く (拡張の install 不要)
+- Chrome 拡張と並存可能 (どちらも同じサーバを叩く)
+- 配信は `extension/` を単一ソースとしてそのまま静的配信 (`popup.html` / `popup.js` / `helpers.js` / `styles.css`)
+- サーバのバインドは `127.0.0.1:19867` のまま (loopback only、外部から到達不可)
 
 ## CLI コマンド
 
@@ -156,7 +170,7 @@ sync back を経由しない差し替えで refresh 済み token が捨てられ
 
 - **書き換えるファイル**: `~/.claude/.credentials.json` (token 保管) と `~/.claude.json` の `oauthAccount` フィールドのみ。`~/.claude.json` の他フィールド (会話履歴、UI 設定など) には触れません
 - **保存先**: 登録済みアカウントの credentials (と setup-token) は `~/.claude-shift/accounts/<name>.json`。SQLite の usage スナップショット・setup-token 発行記録は `~/.claude-shift/usage.db`。setup-token は `credentials.json` へは書き込みません
-- **通信先**: `api.anthropic.com` のみ (`/api/oauth/profile` と `/api/oauth/usage`)。外部サーバへの送信はありません
+- **通信先**: `api.anthropic.com` のみ (`/api/oauth/profile` と `/api/oauth/usage`)。外部サーバへの送信はありません。テスト用の宛先差し替え env `CLAUDE_SHIFT_PROFILE_URL` は loopback (127.0.0.1/localhost) のみ許可で、それ以外は無視して既定 URL を使います
 - **サーバのバインド**: `127.0.0.1:19867` (loopback only、外部から到達不可)
 - **ファイル権限**: `credentials.json` は `chmod 600` (owner のみ読み書き) で書き出します
 
@@ -165,8 +179,19 @@ sync back を経由しない差し替えで refresh 済み token が捨てられ
 ```bash
 npm test
 # node --test tests/*.test.js
-# → 152 tests passing
+# → 162 tests passing
 ```
+
+### e2e (Local Web UI)
+
+Playwright で Web UI の実ブラウザ挙動を検証します (一覧表示 / アカウント切替 / マスキング / サーバ停止時のエラー表示)。
+
+```bash
+npx playwright install chromium   # 初回のみ
+npm run test:e2e
+```
+
+テストは一時 dir を HOME にした隔離サーバに対して走るので、実行マシンの `~/.claude` / `~/.claude-shift` には触れません。外部ネットワークへのアクセスもありません (fixture 全アカウントを pollExclude に入れ、profile fetch は `CLAUDE_SHIFT_PROFILE_URL` でローカルに向けます)。
 
 ## ドキュメント
 
