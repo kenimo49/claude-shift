@@ -1,6 +1,11 @@
 import { formatCountdown, formatResetClock, formatRelativeAgo, renderBar } from "./helpers.js";
 
-const SERVER = "http://127.0.0.1:19867";
+// chrome-extension: 実行時は host_permissions 経由で 127.0.0.1:19867 を叩く。
+// http(s) 配信 (shift server 経由の Local Web UI) では same-origin にして
+// CLAUDE_SHIFT_PORT を変えてもポートに追随できるように相対 URL にする。
+const SERVER = (typeof location !== "undefined" && location.protocol === "chrome-extension:")
+  ? "http://127.0.0.1:19867"
+  : "";
 
 function renderLimit(title, pct, resetAt) {
   const countdown = formatCountdown(resetAt);

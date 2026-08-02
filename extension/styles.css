@@ -3,6 +3,9 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif;
   width: 320px;
+  /* Chrome 拡張 popup では viewport==body 幅で margin auto は効かず、
+     ブラウザ (Local Web UI) では viewport が広いので中央寄せになる。 */
+  margin: 0 auto;
   background: #0f1117;
   color: #e5e7eb;
   font-size: 13px;

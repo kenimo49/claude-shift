@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
-[![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-158%20passing-brightgreen.svg)](tests/)
 
 複数の Claude Code アカウントを 1 台のマシンで切り替え・観測するツール。CLI + ローカル API サーバー + Chrome 拡張の 3 層構成です。
 
@@ -64,6 +64,20 @@ chmod +x shift.sh
 1. Chrome で `chrome://extensions/` を開く
 2. 右上「デベロッパーモード」を ON
 3. 「パッケージ化されていない拡張機能を読み込む」→ `extension/` フォルダを指定
+
+### 5. ブラウザで使う (拡張 install 不要)
+
+`shift server` が起動していれば、そのまま `http://127.0.0.1:19867/` をブラウザで開くだけで Chrome 拡張と同じ popup UI が使えます。
+
+```bash
+./shift.sh server
+# → 別ウィンドウのブラウザで http://127.0.0.1:19867/ を開く
+```
+
+- Chrome / Firefox / Safari どこでも動く (拡張の install 不要)
+- Chrome 拡張と並存可能 (どちらも同じサーバを叩く)
+- 配信は `extension/` を単一ソースとしてそのまま静的配信 (`popup.html` / `popup.js` / `helpers.js` / `styles.css`)
+- サーバのバインドは `127.0.0.1:19867` のまま (loopback only、外部から到達不可)
 
 ## CLI コマンド
 
@@ -165,7 +179,7 @@ sync back を経由しない差し替えで refresh 済み token が捨てられ
 ```bash
 npm test
 # node --test tests/*.test.js
-# → 152 tests passing
+# → 158 tests passing
 ```
 
 ## ドキュメント
