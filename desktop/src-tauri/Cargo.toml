@@ -11,7 +11,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # webview-data-url: server を用意できなかったときの data: URL エラーページ表示に必要
-tauri = { version = "2", features = ["webview-data-url"] }
+tauri = { version = "2", features = ["webview-data-url", "tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
 
 [profile.release]
 strip = true

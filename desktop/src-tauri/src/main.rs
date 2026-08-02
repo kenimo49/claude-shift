@@ -14,12 +14,27 @@
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
 struct SpawnedServer(Mutex<Option<Child>>);
+
+// tray 登録に成功したかどうか。成功時のみ「window close = 隠して常駐」にする。
+// 失敗時 (SNI ホストが居ない環境等) に close を隠す挙動にすると UI から終了できなくなる。
+struct TrayActive(AtomicBool);
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
 
 fn port() -> u16 {
     std::env::var("CLAUDE_SHIFT_PORT")
@@ -141,14 +156,63 @@ fn main() {
     };
 
     let app = tauri::Builder::default()
+        // tray 常駐 (hidden 状態) 中に再起動されたとき、2 個目の window/tray を作らず
+        // 既存インスタンスの window を前面化する。プラグイン登録は最初に置く (公式推奨)
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_main_window(app);
+        }))
         .manage(SpawnedServer(Mutex::new(spawned)))
+        .manage(TrayActive(AtomicBool::new(false)))
         .setup(move |app| {
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url.clone()))
                 .title("Claude Shift")
                 .inner_size(380.0, 680.0)
                 .min_inner_size(340.0, 480.0)
                 .build()?;
+
+            // tray 常駐 (ROADMAP D)。メニュー「終了」だけが完全終了の入口になる。
+            // Linux の appindicator はアイコン左クリックイベントを配送しない (メニューのみ) ため、
+            // 「表示」はメニューにも必ず置く。
+            let show = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let tray = TrayIconBuilder::new()
+                .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?)
+                .tooltip("Claude Shift")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Windows/macOS: アイコン左クリックで window を出す
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app);
+            match tray {
+                Ok(_) => app.state::<TrayActive>().0.store(true, Ordering::Release),
+                // tray が張れない環境 (SNI ホスト無し等) では常駐なしの普通のアプリとして動く
+                Err(e) => eprintln!("[desktop] tray 登録に失敗 (常駐なしで継続): {e}"),
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // tray 常駐中は close で終了せず隠すだけ。完全終了は tray メニュー「終了」
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                if app.state::<TrayActive>().0.load(Ordering::Acquire) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("claude-shift desktop の起動に失敗");
