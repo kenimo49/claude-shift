@@ -7,3 +7,6 @@ node_modules/
 # playwright
 test-results/
 playwright-report/
+
+# tauri
+desktop/src-tauri/target/
