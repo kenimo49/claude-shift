@@ -79,6 +79,17 @@ chmod +x shift.sh
 - 配信は `extension/` を単一ソースとしてそのまま静的配信 (`popup.html` / `popup.js` / `helpers.js` / `styles.css`)
 - サーバのバインドは `127.0.0.1:19867` のまま (loopback only、外部から到達不可)
 
+### 6. デスクトップアプリ (Tauri v2, experimental)
+
+上記 Web UI を独立ウィンドウで開くガワです。UI 資産は持たず server 配信をそのまま WebView で表示します。server が起きていなければ `node cli/server.js` を自動起動し、自分が起動した分だけ終了時に停止します (systemd 等で常駐中の server はそのまま使う)。
+
+```bash
+npm run desktop:dev     # 開発起動 (cargo build + ウィンドウ表示)
+npm run desktop:build   # 配布バンドル生成 (deb / rpm / AppImage)
+```
+
+前提: [Rust toolchain](https://rustup.rs/) と OS 別の Tauri システム依存 ([公式 prerequisites](https://v2.tauri.app/start/prerequisites/))。Linux は `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf` あたりが必要です。`CLAUDE_SHIFT_PORT` で接続先ポート、`CLAUDE_SHIFT_REPO` で repo の場所を上書きできます。
+
 ## CLI コマンド
 
 | コマンド | 内容 |
