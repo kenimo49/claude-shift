@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Tests](https://img.shields.io/badge/tests-162%20passing-brightgreen.svg)](tests/)
 
-> **[kenimoto Claude Code Kit](https://github.com/kenimo49#kenimoto-claude-code-kit)** の一員 — Claude Code の長時間セッションを守るツール群。兄弟: [compact-ops](https://github.com/kenimo49/compact-ops) (`/compact` を挟んでもセッションが壊れないようにする plugin)。
+> **[kenimoto Claude Code Kit](https://github.com/kenimo49#kenimoto-claude-code-kit)** の一員 — Claude Code の長時間セッションを守るツール群。兄弟: [compact-ops](https://github.com/kenimo49/compact-ops) (`/compact` を挟んでもセッションが壊れないようにする plugin) / [hook-chain-lens](https://github.com/kenimo49/hook-chain-lens) (user / project / plugin scope に散らばる hook のマージ後を可視化する CLI)。
 
 複数の Claude Code アカウントを 1 台のマシンで切り替え・観測するツール。CLI + ローカル API サーバー + Chrome 拡張の 3 層構成です。
 
