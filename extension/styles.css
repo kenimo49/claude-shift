@@ -100,6 +100,7 @@ main {
 
 .account-card.is-active {
   border-color: #1e3a5f;
+  border-left: 3px solid #3b82f6;
   background: linear-gradient(180deg, #1e2c46 0%, #1a2030 100%);
 }
 
