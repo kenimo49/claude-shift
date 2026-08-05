@@ -23,11 +23,9 @@ import {
 } from "./accounts.js";
 import { saveSetupTokenIssuance } from "./db.js";
 
-export const SETUP_TOKEN_PREFIX = "sk-ant-oat01-";
+const SETUP_TOKEN_PREFIX = "sk-ant-oat01-";
 // 公式仕様は1年有効。発行応答に期限は含まれないため、発行時刻 + 365日 で記録する。
 export const SETUP_TOKEN_TTL_MS = 365 * 24 * 3600 * 1000;
-// list / usage で再発行を促す閾値
-export const EXPIRY_WARN_MS = 30 * 24 * 3600 * 1000;
 
 export function extractSetupToken(obj) {
   return obj?.setupToken?.accessToken ?? null;
@@ -36,12 +34,6 @@ export function extractSetupToken(obj) {
 export function extractSetupTokenExpiresAt(obj) {
   const v = obj?.setupToken?.expiresAt ?? null;
   return v == null ? null : Number(v);
-}
-
-export function isSetupTokenExpired(obj, now = Date.now()) {
-  const expiresAt = extractSetupTokenExpiresAt(obj);
-  if (expiresAt == null) return false;
-  return expiresAt <= now;
 }
 
 // setup-token を account JSON に merge 保存する。
@@ -77,7 +69,7 @@ export function addSetupToken(
 // token-only アカウントは claudeAiOauth が無く accounts.js の enrichIdentityForAccount
 // (extractToken 依存) が使えないため、setup-token の Bearer で profile を叩く版。
 // setup-token で /api/oauth/profile が拒否される環境もあり得るので呼び出し側で catch する。
-export async function enrichIdentityWithSetupToken(
+async function enrichIdentityWithSetupToken(
   name,
   { accountsDir = DEFAULT_ACCOUNTS_DIR, fetchProfileImpl = fetchProfile } = {}
 ) {

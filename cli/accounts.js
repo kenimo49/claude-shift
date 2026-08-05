@@ -13,8 +13,8 @@ import { homedir } from "os";
 import { fileURLToPath } from "url";
 
 export const DEFAULT_ACCOUNTS_DIR = join(homedir(), ".claude-shift", "accounts");
-export const DEFAULT_CREDENTIALS = join(homedir(), ".claude", ".credentials.json");
-export const DEFAULT_CLAUDE_JSON = join(homedir(), ".claude.json");
+const DEFAULT_CREDENTIALS = join(homedir(), ".claude", ".credentials.json");
+const DEFAULT_CLAUDE_JSON = join(homedir(), ".claude.json");
 // e2e テストが外部ネットワークへ出ずに profile fetch の失敗パスを踏めるよう env で差し替え可能にする。
 // ただし fetchProfile は実 OAuth token を Bearer で送るため、差し替え先は loopback のみ許可する
 // (任意 URL を許すと env 注入だけで token を外へ送れてしまう)。pure function としてテスト可能にしておく。

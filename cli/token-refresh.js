@@ -10,7 +10,7 @@ const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 // console.anthropic.com を primary、platform.claude.com を fallback とする
 // (hermes-agent の実装順序に合わせている。どちらでも成功時は同 payload)
-export const TOKEN_ENDPOINTS = [
+const TOKEN_ENDPOINTS = [
   "https://console.anthropic.com/v1/oauth/token",
   "https://platform.claude.com/v1/oauth/token",
 ];

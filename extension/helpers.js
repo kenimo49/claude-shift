@@ -88,23 +88,3 @@ export function classifyActiveAs(account, loginActiveName, tokenActiveName, acti
       return account === (tokenActiveName ?? loginActiveName);
   }
 }
-
-// 0-100 の数列を折れ線 SVG (0..W x 0..H, y 反転) にする。2 点未満なら空文字。
-export function renderSparkline(pcts, width = 100, height = 18) {
-  if (!Array.isArray(pcts)) return "";
-  const filtered = pcts.filter((p) => typeof p === "number");
-  if (filtered.length < 2) return "";
-  const n = filtered.length;
-  const pts = filtered
-    .map((p, i) => {
-      const x = (i / (n - 1)) * width;
-      const clamped = Math.min(100, Math.max(0, p));
-      const y = height - (clamped / 100) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return `
-    <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-      <polyline points="${pts}"/>
-    </svg>`;
-}
