@@ -21,13 +21,34 @@ function renderLimit(title, pct, resetAt) {
     </div>`;
 }
 
-function renderAccount(row, activeName, syncBroken) {
-  const isActive = row.account === activeName;
+function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, activeHighlight = "effective") {
+  // activeHighlight に従って強調対象を決定
+  let isActive = false;
+  switch (activeHighlight) {
+    case "login":
+      isActive = row.account === loginActiveName;
+      break;
+    case "both":
+      isActive = row.account === loginActiveName || row.account === tokenActiveName;
+      break;
+    default: // "effective": token pin 優先
+      isActive = row.account === (tokenActiveName ?? loginActiveName);
+  }
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
-  const marker = isActive
-    ? '<span class="active-badge">使用中</span>'
-    : `<button class="switch-btn" data-account="${accountAttr}">切替</button>`;
+
+  // login切替: login credentials があり、かつ現在 login active でない場合に表示
+  // token切替: setup token があり、かつ現在 token pin でない場合に表示
+  const switchBtns = [];
+  if (row.hasLogin && row.activeAs !== "login") {
+    switchBtns.push(`<button class="switch-btn switch-btn-login" data-account="${accountAttr}" data-mode="login">login切替</button>`);
+  }
+  if (row.hasToken && row.activeAs !== "token") {
+    switchBtns.push(`<button class="switch-btn switch-btn-token" data-account="${accountAttr}" data-mode="token">token切替</button>`);
+  }
+  const marker = switchBtns.length > 0
+    ? `<div class="switch-btns">${switchBtns.join("")}</div>`
+    : "";
 
   const statusBadges = [];
   // issue #23: 実効 active の内訳 (login credentials.json / token pin env.sh) を明示する。
@@ -109,14 +130,15 @@ async function load(live = false) {
     const endpoint = live ? `${SERVER}/usage/live` : `${SERVER}/usage`;
     const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { accounts, active, fetched_at, attempted_at, any_needs_reauth, sync_broken } = await res.json();
+    const { accounts, active, fetched_at, attempted_at, any_needs_reauth, sync_broken, active_highlight } = await res.json();
 
     if (!accounts || accounts.length === 0) {
       container.innerHTML = "<p class='empty'>アカウントが見つかりません。<br>~/.claude-shift/accounts/ にcredentialsを追加してください。</p>";
       return;
     }
 
-    container.innerHTML = accounts.map((a) => renderAccount(a, active, !!sync_broken)).join("");
+    const tokenAccount = accounts.find((a) => a.activeAs === "token")?.account ?? null;
+    container.innerHTML = accounts.map((a) => renderAccount(a, active, tokenAccount, !!sync_broken, active_highlight)).join("");
 
     const ts = document.getElementById("timestamp");
     // 「最終取得」= 全アカウント成功した時刻 (server.js の lastFetched)。
@@ -211,6 +233,11 @@ async function openSettings() {
     input.value = cfg.pollMinutes;
     input.placeholder = "";
 
+    const hlVal = cfg.activeHighlight ?? "effective";
+    document.querySelectorAll("#active-highlight-group .seg-btn").forEach((b) => {
+      b.classList.toggle("is-on", b.dataset.value === hlVal);
+    });
+
     const excluded = new Set(cfg.pollExclude ?? []);
     const names = (usage.accounts ?? []).map((a) => a.account).sort();
     if (names.length === 0) {
@@ -256,12 +283,13 @@ async function saveSettings() {
   const pollExclude = [...document.querySelectorAll("[data-observe-account]")]
     .filter((cb) => !cb.checked)
     .map((cb) => cb.dataset.observeAccount);
+  const activeHighlight = document.querySelector("#active-highlight-group .seg-btn.is-on")?.dataset.value ?? "effective";
 
   try {
     const res = await fetch(`${SERVER}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pollMinutes: v, pollExclude }),
+      body: JSON.stringify({ pollMinutes: v, pollExclude, activeHighlight }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -411,9 +439,29 @@ function bindSegButtons() {
       group.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("is-on", b === btn));
       if (which === "metric") chartState.metric = value;
       if (which === "range") chartState.hours = parseInt(value, 10);
-      refreshChart();
+      if (which === "metric" || which === "range") refreshChart();
     });
   });
+}
+
+async function switchTokenUI(name, btn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "切替中...";
+  try {
+    const res = await fetch(`${SERVER}/active-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    await load();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = original;
+    btn.title = `切替失敗: ${e.message}`;
+  }
 }
 
 async function switchAccountUI(name, btn) {
@@ -512,6 +560,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accounts").addEventListener("click", (e) => {
     const btn = e.target.closest(".switch-btn");
     if (!btn) return;
-    switchAccountUI(btn.dataset.account, btn);
+    if (btn.dataset.mode === "token") {
+      switchTokenUI(btn.dataset.account, btn);
+    } else {
+      switchAccountUI(btn.dataset.account, btn);
+    }
   });
 });

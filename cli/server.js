@@ -3,7 +3,7 @@
 
 import { createServer } from "http";
 import { readFile } from "node:fs/promises";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,11 @@ const ENV_SH_PATH = join(homedir(), ".claude-shift", "env.sh");
 // 「実際にどのアカウントで claude が動くか」を login pin と併せて示す。
 // shift.sh list_accounts と同じ (\S+) パターンで拾い、bash %q が付ける単一クォートは
 // 剥がしておく (実用上 setup-token は英数字+ハイフンで %q はノーオペだが safety net)。
+export function writeEnvSh(name, token, envPath = ENV_SH_PATH) {
+  const content = `# claude-shift token-pin: ${name}\nexport CLAUDE_CODE_OAUTH_TOKEN=${token}\n`;
+  writeFileSync(envPath, content, { mode: 0o600 });
+}
+
 export function readEnvShToken(envPath = ENV_SH_PATH) {
   if (!existsSync(envPath)) return null;
   try {
@@ -113,6 +118,7 @@ function initialIntervalMinutes() {
 }
 
 let pollMinutes = initialIntervalMinutes();
+let activeHighlightCache = loadConfig().activeHighlight ?? "effective";
 let pollTimer = null;
 let cache = null;
 // 全アカウント成功した最後の時刻 (UI で「最終取得」に出す信頼できる時刻)
@@ -218,8 +224,8 @@ function buildUsagePayload() {
   //   token = ~/.claude-shift/env.sh の CLAUDE_CODE_OAUTH_TOKEN
   // 両者は独立に判定するので、split 運用 (login=A, token pin=B) では別アカウントに付く。
   const loginActiveName = getActiveInfo().name;
+  const setupTokenByName = collectSetupTokens(); // 常時収集 (hasToken 判定用)
   const envToken = readEnvShToken();
-  const setupTokenByName = envToken ? collectSetupTokens() : new Map();
   const tokenActiveName = envToken
     ? [...setupTokenByName.entries()].find(([, tok]) => tok === envToken)?.[0] ?? null
     : null;
@@ -252,10 +258,13 @@ function buildUsagePayload() {
         : name === tokenActiveName
           ? "token"
           : null;
+    const accountEntry = accountList.find((a) => a.name === name);
     return {
       ...snap,
       stale,
       excluded,
+      hasLogin: accountEntry ? !!accountEntry.token : false,
+      hasToken: setupTokenByName.has(name),
       // 除外中は過去の failure 残骸で「再ログイン必要」等を出さない (観測は別マシンの責務)
       needs_reauth: !excluded && fail ? !!fail.needs_reauth : false,
       last_error: excluded ? null : fail?.message ?? null,
@@ -279,6 +288,7 @@ function buildUsagePayload() {
     attempted_at: lastAttempted || null,
     any_stale: accounts.some((a) => a.stale),
     any_needs_reauth: accounts.some((a) => a.needs_reauth),
+    active_highlight: activeHighlightCache,
   };
 }
 
@@ -346,6 +356,25 @@ const server = createServer(async (req, res) => {
     }
   }
 
+  if (url.pathname === "/active-token") {
+    if (req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const { name } = JSON.parse(body || "{}");
+        if (!name) { respond(res, 400, { error: "name required" }); return; }
+        const allTokens = collectSetupTokens();
+        const token = allTokens.get(name);
+        if (!token) { respond(res, 400, { error: `Account '${name}' has no setup-token` }); return; }
+        writeEnvSh(name, token);
+        console.log(`[active-token] pinned ${name}`);
+        respond(res, 200, { active_token: name });
+      } catch (e) {
+        respond(res, 400, { error: e.message });
+      }
+      return;
+    }
+  }
+
   if (url.pathname === "/history") {
     const account = url.searchParams.get("account");
     const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
@@ -362,7 +391,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/config") {
     if (req.method === "GET") {
-      respond(res, 200, { pollMinutes, pollExclude: getPollExclude() });
+      respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
       return;
     }
     if (req.method === "POST") {
@@ -391,8 +420,17 @@ const server = createServer(async (req, res) => {
           partial.pollExclude = [...new Set(list)].sort();
         }
 
+        if ("activeHighlight" in parsed) {
+          const v = parsed.activeHighlight;
+          if (!["effective", "login", "both"].includes(v)) {
+            respond(res, 400, { error: "activeHighlight must be effective | login | both" });
+            return;
+          }
+          partial.activeHighlight = v;
+        }
+
         if (Object.keys(partial).length === 0) {
-          respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude)" });
+          respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude / activeHighlight)" });
           return;
         }
 
@@ -405,7 +443,11 @@ const server = createServer(async (req, res) => {
         if ("pollExclude" in partial) {
           console.log(`[config] pollExclude → [${partial.pollExclude.join(", ")}]`);
         }
-        respond(res, 200, { pollMinutes, pollExclude: getPollExclude() });
+        if ("activeHighlight" in partial) {
+          activeHighlightCache = partial.activeHighlight;
+          console.log(`[config] activeHighlight → ${activeHighlightCache}`);
+        }
+        respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
       } catch (e) {
         respond(res, 400, { error: "invalid JSON body" });
       }
