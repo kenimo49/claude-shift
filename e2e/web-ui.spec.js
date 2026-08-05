@@ -203,6 +203,92 @@ test.describe("Local Web UI", () => {
     await expect(page.locator("body")).not.toHaveClass(/is-masked/);
   });
 
+  // issue #23: login (credentials.json) と token pin (env.sh) は独立に判定される。
+  // 通常運用は片方だけ、split 運用は両方が別アカウントに付く。
+  // 各テストは開始時に credentials.json / env.sh / setupToken を明示的に再配置し、
+  // 前テストの残余状態に依存しない。
+  test.describe("activeAs バッジ (login / token pin / split)", () => {
+    const BRAVO_SETUP_TOKEN = "sk-ant-oat01-BRAVO-SETUP-FIXTURE";
+    const credPath = () => join(home, ".claude", ".credentials.json");
+    const envPath = () => join(home, ".claude-shift", "env.sh");
+    const bravoPath = () => join(home, ".claude-shift", "accounts", "bravo.json");
+
+    function writeLoginCreds(name) {
+      const raw = JSON.parse(readFileSync(join(home, ".claude-shift", "accounts", `${name}.json`), "utf8"));
+      writeFileSync(credPath(), JSON.stringify({ claudeAiOauth: raw.claudeAiOauth }, null, 2));
+    }
+    function deleteLoginCreds() {
+      rmSync(credPath(), { force: true });
+    }
+    function writeEnvSh(token) {
+      writeFileSync(envPath(), `# claude-shift use-token: bravo (fixture)\nexport CLAUDE_CODE_OAUTH_TOKEN=${token}\n`);
+    }
+    function deleteEnvSh() {
+      rmSync(envPath(), { force: true });
+    }
+    function setBravoSetupToken(token) {
+      const raw = JSON.parse(readFileSync(bravoPath(), "utf8"));
+      raw.setupToken = { accessToken: token, issuedAt: Date.now(), expiresAt: Date.now() + 86400_000 };
+      writeFileSync(bravoPath(), JSON.stringify(raw, null, 2));
+    }
+    function unsetBravoSetupToken() {
+      const raw = JSON.parse(readFileSync(bravoPath(), "utf8"));
+      delete raw.setupToken;
+      writeFileSync(bravoPath(), JSON.stringify(raw, null, 2));
+    }
+
+    test("normal: credentials.json のみ → login バッジのみ、split-warning は非表示", async ({ page }) => {
+      writeLoginCreds("alpha");
+      deleteEnvSh();
+      unsetBravoSetupToken();
+
+      await page.goto(`${base}/`);
+      const alphaCard = page.locator(".account-card", { hasText: "alpha" });
+      const bravoCard = page.locator(".account-card", { hasText: "bravo" });
+
+      await expect(alphaCard.locator(".active-as-login")).toHaveText("login");
+      await expect(alphaCard.locator(".active-as-token")).toHaveCount(0);
+      await expect(bravoCard.locator(".active-as")).toHaveCount(0);
+      // split 条件 (login と token pin の双方が別アカウントに付く) は満たさないので DOM に出ない
+      await expect(page.locator(".split-warning")).toHaveCount(0);
+    });
+
+    test("split: login=alpha + token pin=bravo → 両バッジ + split-warning が可視で bravo を含む", async ({ page }) => {
+      writeLoginCreds("alpha");
+      setBravoSetupToken(BRAVO_SETUP_TOKEN);
+      writeEnvSh(BRAVO_SETUP_TOKEN);
+
+      await page.goto(`${base}/`);
+      const alphaCard = page.locator(".account-card", { hasText: "alpha" });
+      const bravoCard = page.locator(".account-card", { hasText: "bravo" });
+
+      await expect(alphaCard.locator(".active-as-login")).toHaveText("login");
+      await expect(bravoCard.locator(".active-as-token")).toHaveText("token pin");
+
+      const banner = page.locator("#global-banner");
+      await expect(banner).toBeVisible();
+      const warning = banner.locator(".split-warning");
+      await expect(warning).toBeVisible();
+      await expect(warning).toContainText("bravo");
+    });
+
+    test("token pin のみ: credentials.json 不在 → token バッジのみ、login バッジ・split-warning は無し", async ({ page }) => {
+      deleteLoginCreds();
+      setBravoSetupToken(BRAVO_SETUP_TOKEN);
+      writeEnvSh(BRAVO_SETUP_TOKEN);
+
+      await page.goto(`${base}/`);
+      const alphaCard = page.locator(".account-card", { hasText: "alpha" });
+      const bravoCard = page.locator(".account-card", { hasText: "bravo" });
+
+      await expect(bravoCard.locator(".active-as-token")).toHaveText("token pin");
+      await expect(bravoCard.locator(".active-as-login")).toHaveCount(0);
+      await expect(alphaCard.locator(".active-as")).toHaveCount(0);
+      // split は「両方存在 かつ 別々」のみ。login 側が空なので警告は出ない
+      await expect(page.locator(".split-warning")).toHaveCount(0);
+    });
+  });
+
   test("エラーパス: サーバ停止後の更新でエラーメッセージが出る", async ({ page }) => {
     await page.goto(`${base}/`);
     await expect(page.locator(".account-card").first()).toBeVisible();
