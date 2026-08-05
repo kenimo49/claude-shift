@@ -311,158 +311,171 @@ function readBody(req) {
   });
 }
 
+function handleOptions(req, res) {
+  res.writeHead(204, {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
+  res.end();
+}
+
+function handleGetUsage(req, res) {
+  respond(res, 200, buildUsagePayload());
+}
+
+async function handleGetUsageLive(req, res) {
+  await refresh();
+  respond(res, 200, buildUsagePayload());
+}
+
+async function handleActive(req, res) {
+  if (req.method === "GET") {
+    respond(res, 200, { active: getActiveAccount() });
+    return;
+  }
+  if (req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const { name } = JSON.parse(body || "{}");
+      if (!name) { respond(res, 400, { error: "name required" }); return; }
+      await switchAccount(name);
+      console.log(`[active] switched to ${name}`);
+      respond(res, 200, { active: name });
+    } catch (e) {
+      respond(res, 400, { error: e.message });
+    }
+    return;
+  }
+  respond(res, 404, { error: "not found" });
+}
+
+async function handleActiveToken(req, res) {
+  if (req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const { name } = JSON.parse(body || "{}");
+      if (!name) { respond(res, 400, { error: "name required" }); return; }
+      const allTokens = collectSetupTokens();
+      const token = allTokens.get(name);
+      if (!token) { respond(res, 400, { error: `Account '${name}' has no setup-token` }); return; }
+      writeEnvSh(name, token);
+      console.log(`[active-token] pinned ${name}`);
+      respond(res, 200, { active_token: name });
+    } catch (e) {
+      respond(res, 400, { error: e.message });
+    }
+    return;
+  }
+  respond(res, 404, { error: "not found" });
+}
+
+function handleGetHistory(req, res, url) {
+  const account = url.searchParams.get("account");
+  const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
+  if (!account) { respond(res, 400, { error: "account param required" }); return; }
+  respond(res, 200, getHistory(account, hours));
+}
+
+function handleGetHistoryAll(req, res, url) {
+  const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
+  respond(res, 200, getAllHistory(hours));
+}
+
+async function handleConfig(req, res) {
+  if (req.method === "GET") {
+    respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
+    return;
+  }
+  if (req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const parsed = JSON.parse(body || "{}");
+      const partial = {};
+
+      if ("pollMinutes" in parsed) {
+        const v = typeof parsed.pollMinutes === "number"
+          ? parsed.pollMinutes
+          : parseFloat(parsed.pollMinutes);
+        if (!(v > 0)) {
+          respond(res, 400, { error: "pollMinutes must be a positive number (minutes)" });
+          return;
+        }
+        partial.pollMinutes = v;
+      }
+
+      if ("pollExclude" in parsed) {
+        const list = parsed.pollExclude;
+        if (!Array.isArray(list) || list.some((n) => typeof n !== "string" || !n)) {
+          respond(res, 400, { error: "pollExclude must be an array of account names" });
+          return;
+        }
+        partial.pollExclude = [...new Set(list)].sort();
+      }
+
+      if ("activeHighlight" in parsed) {
+        const v = parsed.activeHighlight;
+        if (!["effective", "login", "both"].includes(v)) {
+          respond(res, 400, { error: "activeHighlight must be effective | login | both" });
+          return;
+        }
+        partial.activeHighlight = v;
+      }
+
+      if (Object.keys(partial).length === 0) {
+        respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude / activeHighlight)" });
+        return;
+      }
+
+      saveConfig(partial);
+      if ("pollMinutes" in partial) {
+        pollMinutes = partial.pollMinutes;
+        reschedulePoll();
+        console.log(`[config] pollMinutes → ${pollMinutes}`);
+      }
+      if ("pollExclude" in partial) {
+        console.log(`[config] pollExclude → [${partial.pollExclude.join(", ")}]`);
+      }
+      if ("activeHighlight" in partial) {
+        activeHighlightCache = partial.activeHighlight;
+        console.log(`[config] activeHighlight → ${activeHighlightCache}`);
+      }
+      respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
+    } catch (e) {
+      respond(res, 400, { error: "invalid JSON body" });
+    }
+    return;
+  }
+  respond(res, 404, { error: "not found" });
+}
+
+async function handleStaticAsset(req, res, url) {
+  await serveStatic(res, STATIC_ASSETS.get(url.pathname));
+}
+
+function handleNotFound(req, res) {
+  respond(res, 404, { error: "not found" });
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
-  // CORS プリフライト
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
-    res.end();
-    return;
-  }
-
-  if (url.pathname === "/usage") {
-    respond(res, 200, buildUsagePayload());
-    return;
-  }
-
-  if (url.pathname === "/usage/live") {
-    await refresh();
-    respond(res, 200, buildUsagePayload());
-    return;
-  }
-
-  if (url.pathname === "/active") {
-    if (req.method === "GET") {
-      respond(res, 200, { active: getActiveAccount() });
-      return;
-    }
-    if (req.method === "POST") {
-      try {
-        const body = await readBody(req);
-        const { name } = JSON.parse(body || "{}");
-        if (!name) { respond(res, 400, { error: "name required" }); return; }
-        await switchAccount(name);
-        console.log(`[active] switched to ${name}`);
-        respond(res, 200, { active: name });
-      } catch (e) {
-        respond(res, 400, { error: e.message });
-      }
-      return;
-    }
-  }
-
-  if (url.pathname === "/active-token") {
-    if (req.method === "POST") {
-      try {
-        const body = await readBody(req);
-        const { name } = JSON.parse(body || "{}");
-        if (!name) { respond(res, 400, { error: "name required" }); return; }
-        const allTokens = collectSetupTokens();
-        const token = allTokens.get(name);
-        if (!token) { respond(res, 400, { error: `Account '${name}' has no setup-token` }); return; }
-        writeEnvSh(name, token);
-        console.log(`[active-token] pinned ${name}`);
-        respond(res, 200, { active_token: name });
-      } catch (e) {
-        respond(res, 400, { error: e.message });
-      }
-      return;
-    }
-  }
-
-  if (url.pathname === "/history") {
-    const account = url.searchParams.get("account");
-    const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
-    if (!account) { respond(res, 400, { error: "account param required" }); return; }
-    respond(res, 200, getHistory(account, hours));
-    return;
-  }
-
-  if (url.pathname === "/history/all") {
-    const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
-    respond(res, 200, getAllHistory(hours));
-    return;
-  }
-
-  if (url.pathname === "/config") {
-    if (req.method === "GET") {
-      respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
-      return;
-    }
-    if (req.method === "POST") {
-      try {
-        const body = await readBody(req);
-        const parsed = JSON.parse(body || "{}");
-        const partial = {};
-
-        if ("pollMinutes" in parsed) {
-          const v = typeof parsed.pollMinutes === "number"
-            ? parsed.pollMinutes
-            : parseFloat(parsed.pollMinutes);
-          if (!(v > 0)) {
-            respond(res, 400, { error: "pollMinutes must be a positive number (minutes)" });
-            return;
-          }
-          partial.pollMinutes = v;
-        }
-
-        if ("pollExclude" in parsed) {
-          const list = parsed.pollExclude;
-          if (!Array.isArray(list) || list.some((n) => typeof n !== "string" || !n)) {
-            respond(res, 400, { error: "pollExclude must be an array of account names" });
-            return;
-          }
-          partial.pollExclude = [...new Set(list)].sort();
-        }
-
-        if ("activeHighlight" in parsed) {
-          const v = parsed.activeHighlight;
-          if (!["effective", "login", "both"].includes(v)) {
-            respond(res, 400, { error: "activeHighlight must be effective | login | both" });
-            return;
-          }
-          partial.activeHighlight = v;
-        }
-
-        if (Object.keys(partial).length === 0) {
-          respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude / activeHighlight)" });
-          return;
-        }
-
-        saveConfig(partial);
-        if ("pollMinutes" in partial) {
-          pollMinutes = partial.pollMinutes;
-          reschedulePoll();
-          console.log(`[config] pollMinutes → ${pollMinutes}`);
-        }
-        if ("pollExclude" in partial) {
-          console.log(`[config] pollExclude → [${partial.pollExclude.join(", ")}]`);
-        }
-        if ("activeHighlight" in partial) {
-          activeHighlightCache = partial.activeHighlight;
-          console.log(`[config] activeHighlight → ${activeHighlightCache}`);
-        }
-        respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
-      } catch (e) {
-        respond(res, 400, { error: "invalid JSON body" });
-      }
-      return;
-    }
-  }
+  if (req.method === "OPTIONS") return handleOptions(req, res);
+  if (url.pathname === "/usage") return handleGetUsage(req, res);
+  if (url.pathname === "/usage/live") return handleGetUsageLive(req, res);
+  if (url.pathname === "/active") return handleActive(req, res);
+  if (url.pathname === "/active-token") return handleActiveToken(req, res);
+  if (url.pathname === "/history") return handleGetHistory(req, res, url);
+  if (url.pathname === "/history/all") return handleGetHistoryAll(req, res, url);
+  if (url.pathname === "/config") return handleConfig(req, res);
 
   // ホワイトリスト static 配信 (popup 資産)。JSON API より後・404 より前に置くことで
   // 既存 API path とは衝突せず、未登録 path は従来どおり JSON 404 になる。
   if (req.method === "GET" && STATIC_ASSETS.has(url.pathname)) {
-    await serveStatic(res, STATIC_ASSETS.get(url.pathname));
-    return;
+    return handleStaticAsset(req, res, url);
   }
 
-  respond(res, 404, { error: "not found" });
+  return handleNotFound(req, res);
 });
 
 // テストから listen(0) して静的配信の HTTP 挙動を確認できるように export する。
