@@ -30,6 +30,13 @@ function renderAccount(row, activeName, syncBroken) {
     : `<button class="switch-btn" data-account="${accountAttr}">切替</button>`;
 
   const statusBadges = [];
+  // issue #23: 実効 active の内訳 (login credentials.json / token pin env.sh) を明示する。
+  // 通常運用時は片方だけ、split 運用時は 2 アカウントに別々に付いてバナーで補足される。
+  if (row.activeAs === "login") {
+    statusBadges.push('<span class="status-badge active-as active-as-login" title="~/.claude/.credentials.json のログインアカウント">login</span>');
+  } else if (row.activeAs === "token") {
+    statusBadges.push('<span class="status-badge active-as active-as-token" title="~/.claude-shift/env.sh の CLAUDE_CODE_OAUTH_TOKEN が指すアカウント (claude 実行時に優先)">token pin</span>');
+  }
   if (syncBroken) {
     // issue #5: claude CLI と shift の active identity が特定できない
     statusBadges.push('<span class="status-badge sync-broken" title="claude CLI と shift のアクティブが特定できません">同期切れ</span>');
@@ -140,18 +147,27 @@ async function load(live = false) {
     // ヘッダ下の banner に警告メッセージを組み立てる。
     // - sync_broken (issue #5): claude CLI と shift のアクティブ identity 不一致
     // - any_needs_reauth: refresh 失敗で再ログインが必要な account が 1 件以上
-    // 両方立つ可能性がある (完全に別問題) ので、独立して積む。
+    // - split (issue #23): login=X と token pin=Y が別アカウント。claude 実行時は
+    //   env.sh の CLAUDE_CODE_OAUTH_TOKEN が credentials.json より優先されるので
+    //   実質 Y (token pin) が使われる — 誤解を防ぐため明示する。
+    // 独立事象なので複数同時に立つ可能性あり。
     const banner = document.getElementById("global-banner");
     if (banner) {
       const messages = [];
+      const loginAccount = accounts.find((a) => a.activeAs === "login")?.account ?? null;
+      const tokenAccount = accounts.find((a) => a.activeAs === "token")?.account ?? null;
+      const splitBlock = loginAccount && tokenAccount && loginAccount !== tokenAccount
+        ? `<div class="split-warning">login=${escapeHtml(loginAccount)} / token pin=${escapeHtml(tokenAccount)} の split 運用中。<code>claude</code> 実行時は ${escapeHtml(tokenAccount)} (token pin) が優先されます</div>`
+        : null;
+      if (splitBlock) messages.push(splitBlock);
       if (sync_broken) {
-        messages.push("claude CLI と shift のアクティブが特定できません (shift add で再登録)");
+        messages.push(`<div>${escapeHtml("claude CLI と shift のアクティブが特定できません (shift add で再登録)")}</div>`);
       }
       if (any_needs_reauth) {
-        messages.push("再ログインが必要なアカウントがあります (claude /login → shift add)");
+        messages.push(`<div>${escapeHtml("再ログインが必要なアカウントがあります (claude /login → shift add)")}</div>`);
       }
       if (messages.length > 0) {
-        banner.innerHTML = messages.map((m) => `<div>${escapeHtml(m)}</div>`).join("");
+        banner.innerHTML = messages.join("");
         banner.classList.remove("hidden");
       } else {
         banner.classList.add("hidden");
