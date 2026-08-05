@@ -224,6 +224,11 @@ main {
   opacity: 0.65;
 }
 
+/* 実効 active のカードは excluded でも opacity を戻す (token pin 優先で動いているため) */
+.account-card.is-active.is-excluded {
+  opacity: 1;
+}
+
 .observe-list {
   display: flex;
   flex-direction: column;
