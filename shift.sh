@@ -6,6 +6,7 @@ ACCOUNTS_DIR="${HOME}/.claude-shift/accounts"
 CREDENTIALS="${HOME}/.claude/.credentials.json"
 ENV_FILE="${HOME}/.claude-shift/env.sh"
 CONFIG_FILE="${HOME}/.claude-shift/config.json"
+SHIFT_DB="${HOME}/.claude-shift/usage.db"
 
 usage() {
   cat <<EOF
@@ -398,6 +399,18 @@ EOF
   fi
 
   rm -f "$cred_file"
+
+  # DB に残る snapshot / failure / setup_token を掃除する。
+  # 残すと cli/server.js の accountNames が過去 snapshot 経由で
+  # ゾンビアカウントを復活させ、popup に表示され続けるため。
+  if [[ -f "$SHIFT_DB" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    local safe_name="${name//\'/\'\'}"
+    sqlite3 "$SHIFT_DB" \
+      "DELETE FROM snapshots    WHERE account='${safe_name}';
+       DELETE FROM failures     WHERE account='${safe_name}';
+       DELETE FROM setup_tokens WHERE account='${safe_name}';"
+  fi
+
   echo "Removed: $name"
 }
 
