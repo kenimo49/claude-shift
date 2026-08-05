@@ -103,11 +103,6 @@ main {
   background: linear-gradient(180deg, #1e2c46 0%, #1a2030 100%);
 }
 
-/* split 時の非ハイライト側: 左ボーダーのみ (存在を示すが目立たせない) */
-.account-card.is-login-secondary {
-  border-left: 3px solid #374151;
-  background: #1a2030;
-}
 
 .account-card.needs-reauth {
   border-color: #7c2d12;

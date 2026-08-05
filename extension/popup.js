@@ -26,7 +26,6 @@ function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, active
 
   // activeHighlight に従って強調対象を決定
   let isActive = false;
-  let isLoginSecondary = false; // split+effective 時の login: 左ボーダーのみ
   switch (activeHighlight) {
     case "login":
       isActive = row.account === loginActiveName;
@@ -36,7 +35,6 @@ function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, active
       break;
     default: // "effective": token pin 優先
       isActive = row.account === (tokenActiveName ?? loginActiveName);
-      isLoginSecondary = isSplit && row.account === loginActiveName;
   }
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
@@ -87,7 +85,6 @@ function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, active
   const classes = [
     "account-card",
     isActive ? "is-active" : "",
-    isLoginSecondary ? "is-login-secondary" : "",
     syncBroken ? "sync-broken" : "",
     row.excluded ? "is-excluded" : "",
     row.needs_reauth ? "needs-reauth" : "",
