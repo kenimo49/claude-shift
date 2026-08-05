@@ -3,7 +3,9 @@
 
 import { createServer } from "http";
 import { readFile } from "node:fs/promises";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { fetchAllUsage } from "./fetch-usage.js";
 import { loadConfig, saveConfig, getPollExclude } from "./config.js";
@@ -21,7 +23,55 @@ import {
   switchAccount,
   getIdentityStatus,
   listAccounts,
+  DEFAULT_ACCOUNTS_DIR,
 } from "./accounts.js";
+import { extractSetupToken } from "./tokens.js";
+
+const ENV_SH_PATH = join(homedir(), ".claude-shift", "env.sh");
+
+// issue #23: shift use-token が書き出す env.sh の CLAUDE_CODE_OAUTH_TOKEN を抽出。
+// claude 実行時は credentials.json より env の token が優先されるため、popup 側で
+// 「実際にどのアカウントで claude が動くか」を login pin と併せて示す。
+// shift.sh list_accounts と同じ (\S+) パターンで拾い、bash %q が付ける単一クォートは
+// 剥がしておく (実用上 setup-token は英数字+ハイフンで %q はノーオペだが safety net)。
+export function readEnvShToken(envPath = ENV_SH_PATH) {
+  if (!existsSync(envPath)) return null;
+  try {
+    const raw = readFileSync(envPath, "utf8");
+    const m = raw.match(/CLAUDE_CODE_OAUTH_TOKEN=(\S+)/);
+    if (!m) return null;
+    let v = m[1];
+    if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) v = v.slice(1, -1);
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+// account 名 → setupToken 値 の map。login 系 (accounts.listAccounts) は
+// setupToken を含まないので、accounts ディレクトリを直接読む。token-only アカウントも
+// 対象 (usage snapshot 側で名前だけ出る場合がある)。
+export function collectSetupTokens(accountsDir = DEFAULT_ACCOUNTS_DIR) {
+  const map = new Map();
+  let entries;
+  try {
+    entries = readdirSync(accountsDir);
+  } catch {
+    return map;
+  }
+  for (const f of entries) {
+    if (!f.endsWith(".json")) continue;
+    const name = f.replace(/\.json$/, "");
+    try {
+      const raw = JSON.parse(readFileSync(join(accountsDir, f), "utf8"));
+      const t = extractSetupToken(raw);
+      if (t) map.set(name, t);
+    } catch {
+      // 読めない account はスキップ (identity_error として別経路で露出済み)
+    }
+  }
+  return map;
+}
 
 const PORT = process.env.CLAUDE_SHIFT_PORT ?? 19867;
 
@@ -160,7 +210,22 @@ function buildUsagePayload() {
     ...snapshots.map((s) => s.account),
     ...failures.map((f) => f.account),
     ...excludeSet,
+    ...accountList.map((a) => a.name),
   ]);
+
+  // issue #23: activeAs 判定用の identity source。
+  //   login = credentials.json ベース (getActiveInfo)
+  //   token = ~/.claude-shift/env.sh の CLAUDE_CODE_OAUTH_TOKEN
+  // 両者は独立に判定するので、split 運用 (login=A, token pin=B) では別アカウントに付く。
+  const loginActiveName = getActiveInfo().name;
+  const envToken = readEnvShToken();
+  const setupTokenByName = envToken ? collectSetupTokens() : new Map();
+  const tokenActiveName = envToken
+    ? [...setupTokenByName.entries()].find(([, tok]) => tok === envToken)?.[0] ?? null
+    : null;
+  // token pin されたアカウントが snapshot / login list どちらにも出ていない
+  // (token-only + 未 poll) 場合でも UI に出せるよう accountNames に足す
+  if (tokenActiveName) accountNames.add(tokenActiveName);
 
   const accounts = [...accountNames].sort().map((name) => {
     const snap = snapshots.find((s) => s.account === name) ?? {
@@ -179,6 +244,14 @@ function buildUsagePayload() {
         ? true
         : now - snap.captured_at > STALE_THRESHOLD_MS;
     const idStatus = identityByName.get(name);
+    // issue #23: 両方一致する通常運用時は 'login' を優先 (spec 準拠)。
+    // split 運用時 (login=A, token pin=B) は別々のアカウントに 'login' / 'token' が付く。
+    const activeAs =
+      name === loginActiveName
+        ? "login"
+        : name === tokenActiveName
+          ? "token"
+          : null;
     return {
       ...snap,
       stale,
@@ -190,6 +263,7 @@ function buildUsagePayload() {
       error_at: excluded ? null : fail?.at ?? null,
       identity_missing: idStatus ? !idStatus.hasUuid : false,
       identity_error: idStatus?.lastError ?? null,
+      activeAs,
     };
   });
 

@@ -180,6 +180,34 @@ main {
   color: #93c5fd;
 }
 
+/* issue #23: 実効 active の内訳 (login / token pin) を色で区別する。
+   login: credentials.json (青系, active-badge と同系統)。
+   token pin: env.sh の CLAUDE_CODE_OAUTH_TOKEN (紫系, claude 実行時に優先されるため
+   split 運用時に目立たせる)。 */
+.status-badge.active-as-login {
+  background: #1e3a5f;
+  color: #bfdbfe;
+}
+
+.status-badge.active-as-token {
+  background: #4c1d95;
+  color: #ddd6fe;
+}
+
+/* split 運用 (login≠token pin) の警告バナー。global-banner の内側で使う。 */
+.global-banner .split-warning {
+  background: transparent;
+  color: #fef3c7;
+}
+
+.global-banner .split-warning code {
+  background: rgba(0, 0, 0, 0.35);
+  color: #fef3c7;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
 .account-card.is-excluded {
   opacity: 0.65;
 }
