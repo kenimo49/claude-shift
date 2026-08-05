@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 
-export const DEFAULT_CONFIG_PATH = join(homedir(), ".claude-shift", "config.json");
+const DEFAULT_CONFIG_PATH = join(homedir(), ".claude-shift", "config.json");
 
 function resolvePath(configPath) {
   return configPath ?? process.env.CLAUDE_SHIFT_CONFIG_PATH ?? DEFAULT_CONFIG_PATH;
