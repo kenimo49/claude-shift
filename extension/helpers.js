@@ -52,6 +52,43 @@ export function renderBar(pct) {
     <div class="bar-label">${c}% 使用中</div>`;
 }
 
+// HTML 属性値用のエスケープ (title=".." data-account=".." 等)
+export function escapeAttr(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
+}
+// テキストノード用の HTML エスケープ (エンコード対象は同じだが用途を明示)
+export const escapeHtml = escapeAttr;
+
+// タイムスタンプを HH:MM に整形 (ローカル TZ)
+export function fmtHM(ms) {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// タイムスタンプを M/D に整形 (ローカル TZ)
+export function fmtMD(ms) {
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// アカウントカードを "active" として強調するかを判定する。
+// activeHighlight は設定モーダルのセグメントボタン: "login" / "token" / "both" / "effective"。
+// "effective" は token pin があれば token を、無ければ login を優先する (claude 実行時の実効挙動)。
+export function classifyActiveAs(account, loginActiveName, tokenActiveName, activeHighlight = "effective") {
+  switch (activeHighlight) {
+    case "login":
+      return account === loginActiveName;
+    case "token":
+      return account === tokenActiveName;
+    case "both":
+      return account === loginActiveName || account === tokenActiveName;
+    default: // "effective": token pin 優先
+      return account === (tokenActiveName ?? loginActiveName);
+  }
+}
+
 // 0-100 の数列を折れ線 SVG (0..W x 0..H, y 反転) にする。2 点未満なら空文字。
 export function renderSparkline(pcts, width = 100, height = 18) {
   if (!Array.isArray(pcts)) return "";

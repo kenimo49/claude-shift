@@ -1,4 +1,14 @@
-import { formatCountdown, formatResetClock, formatRelativeAgo, renderBar } from "./helpers.js";
+import {
+  formatCountdown,
+  formatResetClock,
+  formatRelativeAgo,
+  renderBar,
+  escapeAttr,
+  escapeHtml,
+  fmtHM,
+  fmtMD,
+  classifyActiveAs,
+} from "./helpers.js";
 
 // http(s) 配信 (shift server 経由の Local Web UI) のときだけ same-origin の相対 URL にして
 // CLAUDE_SHIFT_PORT の変更にも追随させる。それ以外 (chrome-extension: の拡張 popup、
@@ -22,18 +32,7 @@ function renderLimit(title, pct, resetAt) {
 }
 
 function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, activeHighlight = "effective") {
-  // activeHighlight に従って強調対象を決定
-  let isActive = false;
-  switch (activeHighlight) {
-    case "login":
-      isActive = row.account === loginActiveName;
-      break;
-    case "both":
-      isActive = row.account === loginActiveName || row.account === tokenActiveName;
-      break;
-    default: // "effective": token pin 優先
-      isActive = row.account === (tokenActiveName ?? loginActiveName);
-  }
+  const isActive = classifyActiveAs(row.account, loginActiveName, tokenActiveName, activeHighlight);
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
 
@@ -105,15 +104,6 @@ function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, active
     </div>`;
 }
 
-// HTML 属性値用のエスケープ (title=".." data-account=".." 等)
-function escapeAttr(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[c]);
-}
-// テキストノード用の HTML エスケープ (エンコード対象は同じだが用途を明示)
-const escapeHtml = escapeAttr;
-
 async function load(live = false) {
   const container = document.getElementById("accounts");
   const btn = document.getElementById("btn-refresh");
@@ -145,20 +135,16 @@ async function load(live = false) {
     // needs_reauth は「取得失敗」から除外されているので、他 account の取得さえ成功していれば
     // fetched_at は更新される。真の transient failure が起きている時だけ「試行 / 成功」分岐が出る。
     // needs_reauth 自体はカード側 badge + any_needs_reauth banner で通知する (issue #7)。
-    const fmt = (ms) => {
-      const d = new Date(ms);
-      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    };
     if (fetched_at && (!attempted_at || attempted_at === fetched_at)) {
-      ts.textContent = `最終取得: ${fmt(fetched_at)}`;
+      ts.textContent = `最終取得: ${fmtHM(fetched_at)}`;
       ts.title = "";
       ts.classList.remove("has-error");
     } else if (fetched_at && attempted_at) {
-      ts.textContent = `試行: ${fmt(attempted_at)} / 成功: ${fmt(fetched_at)}`;
+      ts.textContent = `試行: ${fmtHM(attempted_at)} / 成功: ${fmtHM(fetched_at)}`;
       ts.title = "直近の refresh は一部アカウントで失敗しています";
       ts.classList.add("has-error");
     } else if (attempted_at) {
-      ts.textContent = `試行: ${fmt(attempted_at)} (未成功)`;
+      ts.textContent = `試行: ${fmtHM(attempted_at)} (未成功)`;
       ts.title = "全アカウントで取得に失敗しています";
       ts.classList.add("has-error");
     } else {
@@ -314,15 +300,6 @@ async function saveSettings() {
 
 const CHART_COLORS = ["#93c5fd", "#f59e0b", "#6ee7b7", "#f472b6", "#a78bfa", "#fb7185"];
 let chartState = { metric: "five_hour_pct", hours: 24 };
-
-function fmtHM(ms) {
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-function fmtMD(ms) {
-  const d = new Date(ms);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
 
 function drawChart(history, metric, hours) {
   const container = document.getElementById("chart-container");
