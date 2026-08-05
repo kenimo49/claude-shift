@@ -87,8 +87,6 @@ function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, active
   const classes = [
     "account-card",
     isActive ? "is-active" : "",
-    // login 強調時は青色に上書き (デフォルト is-active は紫 = token pin)
-    isActive && row.account === loginActiveName ? "is-active-login" : "",
     isLoginSecondary ? "is-login-secondary" : "",
     syncBroken ? "sync-broken" : "",
     row.excluded ? "is-excluded" : "",

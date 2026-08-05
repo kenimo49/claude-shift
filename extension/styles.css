@@ -99,19 +99,13 @@ main {
 .account-card:last-child { margin-bottom: 0; }
 
 .account-card.is-active {
-  border-color: #4c1d95;
-  background: linear-gradient(180deg, #1e1a36 0%, #1a2030 100%);
-}
-
-/* login 強調時 (login モード / both モード / effective で login が実効 active): 青グラデーション */
-.account-card.is-active.is-active-login {
   border-color: #1e3a5f;
   background: linear-gradient(180deg, #1e2c46 0%, #1a2030 100%);
 }
 
-/* split+effective モードの login カード: 左ボーダーのみ (実行権は token pin 側) */
+/* split 時の非ハイライト側: 左ボーダーのみ (存在を示すが目立たせない) */
 .account-card.is-login-secondary {
-  border-left: 3px solid #1e3a5f;
+  border-left: 3px solid #374151;
   background: #1a2030;
 }
 
