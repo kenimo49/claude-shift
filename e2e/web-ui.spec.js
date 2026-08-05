@@ -161,9 +161,9 @@ test.describe("Local Web UI", () => {
     await expect(alphaCard).toBeVisible();
     await expect(bravoCard).toBeVisible();
 
-    // active = alpha: 使用中バッジは alpha 側、bravo 側は切替ボタン
-    await expect(alphaCard.locator(".active-badge")).toHaveText("使用中");
-    await expect(bravoCard.locator(".switch-btn")).toBeVisible();
+    // active = alpha: login バッジは alpha 側、bravo 側は login切替ボタン
+    await expect(alphaCard.locator(".active-as-login")).toHaveText("login");
+    await expect(bravoCard.locator(".switch-btn-login")).toBeVisible();
 
     // seed した snapshot がバーに反映される (5時間枠 42% / 週次 63%)
     await expect(alphaCard.locator(".bar-label").first()).toHaveText("42% 使用中");
@@ -176,12 +176,12 @@ test.describe("Local Web UI", () => {
   test("ハッピーパス: 切替で active と credentials.json が切り替わる", async ({ page }) => {
     await page.goto(`${base}/`);
     const bravoCard = page.locator(".account-card", { hasText: "bravo" });
-    await bravoCard.locator(".switch-btn").click();
+    await bravoCard.locator(".switch-btn-login").click();
 
-    // UI 上で使用中が bravo に移る
-    await expect(bravoCard.locator(".active-badge")).toHaveText("使用中");
+    // UI 上で login active が bravo に移る
+    await expect(bravoCard.locator(".active-as-login")).toHaveText("login");
     const alphaCard = page.locator(".account-card", { hasText: "alpha" });
-    await expect(alphaCard.locator(".switch-btn")).toBeVisible();
+    await expect(alphaCard.locator(".switch-btn-login")).toBeVisible();
 
     // fixture HOME の credentials.json が実際に bravo へ書き換わっている
     const creds = JSON.parse(readFileSync(join(home, ".claude", ".credentials.json"), "utf8"));
