@@ -21,8 +21,12 @@ function renderLimit(title, pct, resetAt) {
     </div>`;
 }
 
-function renderAccount(row, activeName, syncBroken) {
-  const isActive = row.account === activeName;
+function renderAccount(row, loginActiveName, tokenActiveName, syncBroken) {
+  // 実効 active = token pin が優先。split 時は token pin 側を is-active で強調し、
+  // login 側は is-login-active (控えめな左ボーダーアクセント) に留める。
+  const effectiveActive = tokenActiveName ?? loginActiveName;
+  const isActive = row.account === effectiveActive;
+  const isLoginOnly = !tokenActiveName && row.account === loginActiveName;
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
 
@@ -72,6 +76,8 @@ function renderAccount(row, activeName, syncBroken) {
   const classes = [
     "account-card",
     isActive ? "is-active" : "",
+    // split 時に login 側は控えめアクセントのみ (is-active より弱い)
+    !isActive && row.account === loginActiveName && tokenActiveName ? "is-login-active" : "",
     syncBroken ? "sync-broken" : "",
     row.excluded ? "is-excluded" : "",
     row.needs_reauth ? "needs-reauth" : "",
@@ -126,7 +132,8 @@ async function load(live = false) {
       return;
     }
 
-    container.innerHTML = accounts.map((a) => renderAccount(a, active, !!sync_broken)).join("");
+    const tokenAccount = accounts.find((a) => a.activeAs === "token")?.account ?? null;
+    container.innerHTML = accounts.map((a) => renderAccount(a, active, tokenAccount, !!sync_broken)).join("");
 
     const ts = document.getElementById("timestamp");
     // 「最終取得」= 全アカウント成功した時刻 (server.js の lastFetched)。

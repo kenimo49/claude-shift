@@ -99,8 +99,14 @@ main {
 .account-card:last-child { margin-bottom: 0; }
 
 .account-card.is-active {
-  border-color: #1e3a5f;
-  background: linear-gradient(180deg, #1e2c46 0%, #1a2030 100%);
+  border-color: #4c1d95;
+  background: linear-gradient(180deg, #1e1a36 0%, #1a2030 100%);
+}
+
+/* split 時の login アカウント: 実行権はないので控えめな左ボーダーアクセントのみ */
+.account-card.is-login-active {
+  border-left: 3px solid #1e3a5f;
+  background: #1a2030;
 }
 
 .account-card.needs-reauth {
