@@ -87,9 +87,15 @@ export function toCredentialsPayload(accountRaw) {
 // credentials.json の内容を account JSON へ書き戻す (sync-back / add 用)。
 // 丸コピーだと account JSON 側にしか無い setupToken / oauthAccount /
 // _shiftIdentityError が破壊されるため、既存フィールドを保持して merge する。
+//
+// oauthAccount は enrich (profile fetch) が authoritative に埋める責務なので
+// credentials.json 由来の値で上書きしない。credentials.json には別アカウント
+// 切替時に前アカウントの oauthAccount が残っていることがあり、そのまま merge
+// すると他 account ファイルに identity が汚染され getActiveInfo が誤判定する。
 export function mergeCredentialsIntoAccount(accountPath, credsRaw) {
   const existing = readJsonSafe(accountPath) ?? {};
-  const merged = { ...existing, ...credsRaw };
+  const { oauthAccount: _ignored, ...credsSafe } = credsRaw;
+  const merged = { ...existing, ...credsSafe };
   writeFileSync(accountPath, JSON.stringify(merged, null, 2));
   try { chmodSync(accountPath, 0o600); } catch {}
   return merged;
