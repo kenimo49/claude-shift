@@ -25,9 +25,19 @@ function renderAccount(row, activeName, syncBroken) {
   const isActive = row.account === activeName;
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
-  const marker = isActive
-    ? '<span class="active-badge">使用中</span>'
-    : `<button class="switch-btn" data-account="${accountAttr}">切替</button>`;
+
+  // login切替: login credentials があり、かつ現在 login active でない場合に表示
+  // token切替: setup token があり、かつ現在 token pin でない場合に表示
+  const switchBtns = [];
+  if (row.hasLogin && row.activeAs !== "login") {
+    switchBtns.push(`<button class="switch-btn switch-btn-login" data-account="${accountAttr}" data-mode="login">login切替</button>`);
+  }
+  if (row.hasToken && row.activeAs !== "token") {
+    switchBtns.push(`<button class="switch-btn switch-btn-token" data-account="${accountAttr}" data-mode="token">token切替</button>`);
+  }
+  const marker = switchBtns.length > 0
+    ? `<div class="switch-btns">${switchBtns.join("")}</div>`
+    : "";
 
   const statusBadges = [];
   // issue #23: 実効 active の内訳 (login credentials.json / token pin env.sh) を明示する。
@@ -416,6 +426,26 @@ function bindSegButtons() {
   });
 }
 
+async function switchTokenUI(name, btn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "切替中...";
+  try {
+    const res = await fetch(`${SERVER}/active-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    await load();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = original;
+    btn.title = `切替失敗: ${e.message}`;
+  }
+}
+
 async function switchAccountUI(name, btn) {
   const original = btn.textContent;
   btn.disabled = true;
@@ -512,6 +542,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accounts").addEventListener("click", (e) => {
     const btn = e.target.closest(".switch-btn");
     if (!btn) return;
-    switchAccountUI(btn.dataset.account, btn);
+    if (btn.dataset.mode === "token") {
+      switchTokenUI(btn.dataset.account, btn);
+    } else {
+      switchAccountUI(btn.dataset.account, btn);
+    }
   });
 });

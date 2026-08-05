@@ -291,6 +291,12 @@ body.is-masked .legend-name:hover {
   letter-spacing: 0.02em;
 }
 
+.switch-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .switch-btn {
   background: transparent;
   border: 1px solid #374151;
@@ -300,17 +306,42 @@ body.is-masked .legend-name:hover {
   font-size: 10px;
   padding: 2px 8px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 
 .switch-btn:hover {
-  background: #1e3a5f;
-  color: #bfdbfe;
-  border-color: #1e3a5f;
+  background: #1f2937;
+  color: #f3f4f6;
+  border-color: #4b5563;
 }
 
 .switch-btn:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+/* login切替: 青系 (credentials.json) */
+.switch-btn-login {
+  border-color: #1e3a5f;
+  color: #93c5fd;
+}
+
+.switch-btn-login:hover {
+  background: #1e3a5f;
+  color: #bfdbfe;
+  border-color: #2d5490;
+}
+
+/* token切替: 紫系 (env.sh / CLAUDE_CODE_OAUTH_TOKEN) */
+.switch-btn-token {
+  border-color: #4c1d95;
+  color: #c4b5fd;
+}
+
+.switch-btn-token:hover {
+  background: #4c1d95;
+  color: #ddd6fe;
+  border-color: #6d28d9;
 }
 
 /* ---- リミットブロック ---- */

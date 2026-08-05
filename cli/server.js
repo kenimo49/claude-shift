@@ -3,7 +3,7 @@
 
 import { createServer } from "http";
 import { readFile } from "node:fs/promises";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,11 @@ const ENV_SH_PATH = join(homedir(), ".claude-shift", "env.sh");
 // 「実際にどのアカウントで claude が動くか」を login pin と併せて示す。
 // shift.sh list_accounts と同じ (\S+) パターンで拾い、bash %q が付ける単一クォートは
 // 剥がしておく (実用上 setup-token は英数字+ハイフンで %q はノーオペだが safety net)。
+export function writeEnvSh(name, token, envPath = ENV_SH_PATH) {
+  const content = `# claude-shift token-pin: ${name}\nexport CLAUDE_CODE_OAUTH_TOKEN=${token}\n`;
+  writeFileSync(envPath, content, { mode: 0o600 });
+}
+
 export function readEnvShToken(envPath = ENV_SH_PATH) {
   if (!existsSync(envPath)) return null;
   try {
@@ -218,8 +223,8 @@ function buildUsagePayload() {
   //   token = ~/.claude-shift/env.sh の CLAUDE_CODE_OAUTH_TOKEN
   // 両者は独立に判定するので、split 運用 (login=A, token pin=B) では別アカウントに付く。
   const loginActiveName = getActiveInfo().name;
+  const setupTokenByName = collectSetupTokens(); // 常時収集 (hasToken 判定用)
   const envToken = readEnvShToken();
-  const setupTokenByName = envToken ? collectSetupTokens() : new Map();
   const tokenActiveName = envToken
     ? [...setupTokenByName.entries()].find(([, tok]) => tok === envToken)?.[0] ?? null
     : null;
@@ -252,10 +257,13 @@ function buildUsagePayload() {
         : name === tokenActiveName
           ? "token"
           : null;
+    const accountEntry = accountList.find((a) => a.name === name);
     return {
       ...snap,
       stale,
       excluded,
+      hasLogin: accountEntry ? !!accountEntry.token : false,
+      hasToken: setupTokenByName.has(name),
       // 除外中は過去の failure 残骸で「再ログイン必要」等を出さない (観測は別マシンの責務)
       needs_reauth: !excluded && fail ? !!fail.needs_reauth : false,
       last_error: excluded ? null : fail?.message ?? null,
@@ -339,6 +347,25 @@ const server = createServer(async (req, res) => {
         await switchAccount(name);
         console.log(`[active] switched to ${name}`);
         respond(res, 200, { active: name });
+      } catch (e) {
+        respond(res, 400, { error: e.message });
+      }
+      return;
+    }
+  }
+
+  if (url.pathname === "/active-token") {
+    if (req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const { name } = JSON.parse(body || "{}");
+        if (!name) { respond(res, 400, { error: "name required" }); return; }
+        const allTokens = collectSetupTokens();
+        const token = allTokens.get(name);
+        if (!token) { respond(res, 400, { error: `Account '${name}' has no setup-token` }); return; }
+        writeEnvSh(name, token);
+        console.log(`[active-token] pinned ${name}`);
+        respond(res, 200, { active_token: name });
       } catch (e) {
         respond(res, 400, { error: e.message });
       }
