@@ -390,7 +390,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/config") {
     if (req.method === "GET") {
-      respond(res, 200, { pollMinutes, pollExclude: getPollExclude() });
+      respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: loadConfig().activeHighlight ?? "effective" });
       return;
     }
     if (req.method === "POST") {
@@ -419,8 +419,17 @@ const server = createServer(async (req, res) => {
           partial.pollExclude = [...new Set(list)].sort();
         }
 
+        if ("activeHighlight" in parsed) {
+          const v = parsed.activeHighlight;
+          if (!["effective", "login", "both"].includes(v)) {
+            respond(res, 400, { error: "activeHighlight must be effective | login | both" });
+            return;
+          }
+          partial.activeHighlight = v;
+        }
+
         if (Object.keys(partial).length === 0) {
-          respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude)" });
+          respond(res, 400, { error: "no config keys given (pollMinutes / pollExclude / activeHighlight)" });
           return;
         }
 
@@ -433,7 +442,7 @@ const server = createServer(async (req, res) => {
         if ("pollExclude" in partial) {
           console.log(`[config] pollExclude → [${partial.pollExclude.join(", ")}]`);
         }
-        respond(res, 200, { pollMinutes, pollExclude: getPollExclude() });
+        respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: loadConfig().activeHighlight ?? "effective" });
       } catch (e) {
         respond(res, 400, { error: "invalid JSON body" });
       }
