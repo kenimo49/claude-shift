@@ -89,10 +89,12 @@ npm run desktop:dev     # 開発起動 (cargo build + ウィンドウ表示)
 npm run desktop:build   # 配布バンドル生成 (Linux: deb/rpm/AppImage, Windows: msi/nsis, macOS: dmg)
 ```
 
-前提: [Rust toolchain](https://rustup.rs/) と OS 別の Tauri システム依存 ([公式 prerequisites](https://v2.tauri.app/start/prerequisites/))。Linux は `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf` あたりが必要です。`CLAUDE_SHIFT_PORT` で接続先ポート、`CLAUDE_SHIFT_REPO` で repo の場所を上書きできます。
+前提と別マシン配布時の設定は [docs/desktop-setup.md](docs/desktop-setup.md) を参照。要点: [Rust toolchain](https://rustup.rs/) + Node.js >= 20 + OS 別の Tauri システム依存 ([公式 prerequisites](https://v2.tauri.app/start/prerequisites/))。`CLAUDE_SHIFT_PORT` で接続先ポート、`CLAUDE_SHIFT_REPO` で repo の場所を上書きできます。
 
 - **tray 常駐**: システムトレイに常駐し、ウィンドウを閉じても終了しません (隠れるだけ)。完全終了は tray メニューの「終了」から。tray を張れない環境では普通のウィンドウアプリとして動きます
-- **CI ビルド**: [desktop-build workflow](.github/workflows/desktop-build.yml) が Linux / Windows / macOS の 3OS でバンドルを生成します (手動発火 or `desktop-v*` タグ)。Windows / macOS はビルド検証のみで実機動作は未検証です
+- **CI ビルド**: [desktop-build workflow](.github/workflows/desktop-build.yml) が Linux / Windows / macOS の 3OS でバンドルを生成します (手動発火 or `desktop-v*` タグ)。Linux / Windows (Windows 11) は実機動作確認済み、macOS は CI ビルドのみ
+
+生成される exe は UI と server を持たない「ガワ」で、実行時に外部の `cli/server.js` を Node プロセスとして spawn します。build したマシンで自分用に使う分は追加設定不要ですが、**別マシンに配布する場合は Node.js と `CLAUDE_SHIFT_REPO` env の設定が必要**です。詳細は [docs/desktop-setup.md](docs/desktop-setup.md) 参照。
 
 ## CLI コマンド
 
