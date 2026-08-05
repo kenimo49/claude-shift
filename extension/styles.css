@@ -103,8 +103,14 @@ main {
   background: linear-gradient(180deg, #1e1a36 0%, #1a2030 100%);
 }
 
-/* split 時の login アカウント: 実行権はないので控えめな左ボーダーアクセントのみ */
-.account-card.is-login-active {
+/* login 強調時 (login モード / both モード / effective で login が実効 active): 青グラデーション */
+.account-card.is-active.is-active-login {
+  border-color: #1e3a5f;
+  background: linear-gradient(180deg, #1e2c46 0%, #1a2030 100%);
+}
+
+/* split+effective モードの login カード: 左ボーダーのみ (実行権は token pin 側) */
+.account-card.is-login-secondary {
   border-left: 3px solid #1e3a5f;
   background: #1a2030;
 }

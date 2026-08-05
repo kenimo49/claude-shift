@@ -72,6 +72,15 @@
             <span class="field-hint">サーバーが usage を自動取得する間隔</span>
           </label>
           <div class="field">
+            <span class="field-label">アクティブ強調モード</span>
+            <div class="seg-btn-group" data-group="active-highlight" id="active-highlight-group">
+              <button data-value="effective" class="seg-btn is-on">実効優先</button>
+              <button data-value="login" class="seg-btn">login</button>
+              <button data-value="both" class="seg-btn">両方</button>
+            </div>
+            <span class="field-hint">split 時にどちらのカードを強調するか（実効優先 = token pin &gt; login）</span>
+          </div>
+          <div class="field">
             <span class="field-label">usage 観測対象</span>
             <div id="observe-list" class="observe-list"></div>
             <span class="field-hint">オフ = このマシンでは観測しない（login を所有する別マシン側で観測）</span>

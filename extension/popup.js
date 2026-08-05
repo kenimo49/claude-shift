@@ -21,12 +21,23 @@ function renderLimit(title, pct, resetAt) {
     </div>`;
 }
 
-function renderAccount(row, loginActiveName, tokenActiveName, syncBroken) {
-  // 実効 active = token pin が優先。split 時は token pin 側を is-active で強調し、
-  // login 側は is-login-active (控えめな左ボーダーアクセント) に留める。
-  const effectiveActive = tokenActiveName ?? loginActiveName;
-  const isActive = row.account === effectiveActive;
-  const isLoginOnly = !tokenActiveName && row.account === loginActiveName;
+function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, activeHighlight = "effective") {
+  const isSplit = !!(tokenActiveName && loginActiveName && tokenActiveName !== loginActiveName);
+
+  // activeHighlight に従って強調対象を決定
+  let isActive = false;
+  let isLoginSecondary = false; // split+effective 時の login: 左ボーダーのみ
+  switch (activeHighlight) {
+    case "login":
+      isActive = row.account === loginActiveName;
+      break;
+    case "both":
+      isActive = row.account === loginActiveName || row.account === tokenActiveName;
+      break;
+    default: // "effective": token pin 優先
+      isActive = row.account === (tokenActiveName ?? loginActiveName);
+      isLoginSecondary = isSplit && row.account === loginActiveName;
+  }
   const accountAttr = escapeAttr(row.account);
   const accountText = escapeHtml(row.account);
 
@@ -76,8 +87,9 @@ function renderAccount(row, loginActiveName, tokenActiveName, syncBroken) {
   const classes = [
     "account-card",
     isActive ? "is-active" : "",
-    // split 時に login 側は控えめアクセントのみ (is-active より弱い)
-    !isActive && row.account === loginActiveName && tokenActiveName ? "is-login-active" : "",
+    // login 強調時は青色に上書き (デフォルト is-active は紫 = token pin)
+    isActive && row.account === loginActiveName ? "is-active-login" : "",
+    isLoginSecondary ? "is-login-secondary" : "",
     syncBroken ? "sync-broken" : "",
     row.excluded ? "is-excluded" : "",
     row.needs_reauth ? "needs-reauth" : "",
@@ -125,7 +137,7 @@ async function load(live = false) {
     const endpoint = live ? `${SERVER}/usage/live` : `${SERVER}/usage`;
     const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { accounts, active, fetched_at, attempted_at, any_needs_reauth, sync_broken } = await res.json();
+    const { accounts, active, fetched_at, attempted_at, any_needs_reauth, sync_broken, active_highlight } = await res.json();
 
     if (!accounts || accounts.length === 0) {
       container.innerHTML = "<p class='empty'>アカウントが見つかりません。<br>~/.claude-shift/accounts/ にcredentialsを追加してください。</p>";
@@ -133,7 +145,7 @@ async function load(live = false) {
     }
 
     const tokenAccount = accounts.find((a) => a.activeAs === "token")?.account ?? null;
-    container.innerHTML = accounts.map((a) => renderAccount(a, active, tokenAccount, !!sync_broken)).join("");
+    container.innerHTML = accounts.map((a) => renderAccount(a, active, tokenAccount, !!sync_broken, active_highlight)).join("");
 
     const ts = document.getElementById("timestamp");
     // 「最終取得」= 全アカウント成功した時刻 (server.js の lastFetched)。
@@ -228,6 +240,11 @@ async function openSettings() {
     input.value = cfg.pollMinutes;
     input.placeholder = "";
 
+    const hlVal = cfg.activeHighlight ?? "effective";
+    document.querySelectorAll("#active-highlight-group .seg-btn").forEach((b) => {
+      b.classList.toggle("is-on", b.dataset.value === hlVal);
+    });
+
     const excluded = new Set(cfg.pollExclude ?? []);
     const names = (usage.accounts ?? []).map((a) => a.account).sort();
     if (names.length === 0) {
@@ -273,12 +290,13 @@ async function saveSettings() {
   const pollExclude = [...document.querySelectorAll("[data-observe-account]")]
     .filter((cb) => !cb.checked)
     .map((cb) => cb.dataset.observeAccount);
+  const activeHighlight = document.querySelector("#active-highlight-group .seg-btn.is-on")?.dataset.value ?? "effective";
 
   try {
     const res = await fetch(`${SERVER}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pollMinutes: v, pollExclude }),
+      body: JSON.stringify({ pollMinutes: v, pollExclude, activeHighlight }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -428,7 +446,7 @@ function bindSegButtons() {
       group.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("is-on", b === btn));
       if (which === "metric") chartState.metric = value;
       if (which === "range") chartState.hours = parseInt(value, 10);
-      refreshChart();
+      if (which === "metric" || which === "range") refreshChart();
     });
   });
 }

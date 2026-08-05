@@ -287,6 +287,7 @@ function buildUsagePayload() {
     attempted_at: lastAttempted || null,
     any_stale: accounts.some((a) => a.stale),
     any_needs_reauth: accounts.some((a) => a.needs_reauth),
+    active_highlight: loadConfig().activeHighlight ?? "effective",
   };
 }
 
