@@ -22,8 +22,6 @@ function renderLimit(title, pct, resetAt) {
 }
 
 function renderAccount(row, loginActiveName, tokenActiveName, syncBroken, activeHighlight = "effective") {
-  const isSplit = !!(tokenActiveName && loginActiveName && tokenActiveName !== loginActiveName);
-
   // activeHighlight に従って強調対象を決定
   let isActive = false;
   switch (activeHighlight) {

@@ -118,6 +118,7 @@ function initialIntervalMinutes() {
 }
 
 let pollMinutes = initialIntervalMinutes();
+let activeHighlightCache = loadConfig().activeHighlight ?? "effective";
 let pollTimer = null;
 let cache = null;
 // 全アカウント成功した最後の時刻 (UI で「最終取得」に出す信頼できる時刻)
@@ -287,7 +288,7 @@ function buildUsagePayload() {
     attempted_at: lastAttempted || null,
     any_stale: accounts.some((a) => a.stale),
     any_needs_reauth: accounts.some((a) => a.needs_reauth),
-    active_highlight: loadConfig().activeHighlight ?? "effective",
+    active_highlight: activeHighlightCache,
   };
 }
 
@@ -390,7 +391,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/config") {
     if (req.method === "GET") {
-      respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: loadConfig().activeHighlight ?? "effective" });
+      respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
       return;
     }
     if (req.method === "POST") {
@@ -442,7 +443,11 @@ const server = createServer(async (req, res) => {
         if ("pollExclude" in partial) {
           console.log(`[config] pollExclude → [${partial.pollExclude.join(", ")}]`);
         }
-        respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: loadConfig().activeHighlight ?? "effective" });
+        if ("activeHighlight" in partial) {
+          activeHighlightCache = partial.activeHighlight;
+          console.log(`[config] activeHighlight → ${activeHighlightCache}`);
+        }
+        respond(res, 200, { pollMinutes, pollExclude: getPollExclude(), activeHighlight: activeHighlightCache });
       } catch (e) {
         respond(res, 400, { error: "invalid JSON body" });
       }
